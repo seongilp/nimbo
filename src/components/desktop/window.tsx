@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { memo, useRef } from "react";
 import { Minus, X, Maximize2 } from "lucide-react";
 
 import { APP_MAP } from "./app-registry";
@@ -13,10 +13,21 @@ const TOPBAR_H = 30;
 
 type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 
+// App content is isolated from window-position re-renders: it only re-mounts
+// when the appId changes, never when the window moves, resizes, or refocuses.
+const WindowBody = memo(function WindowBody({ appId }: { appId: string }) {
+  const C = APP_MAP[appId]?.component;
+  return C ? <C /> : null;
+});
+
 export function Window({ win }: { win: WindowState }) {
   const { focus, close, minimize, toggleMaximize, move, resize, focusedId } = useWindowStore();
   const app = APP_MAP[win.appId];
-  const dragRef = useRef<{ startX: number; startY: number; winX: number; winY: number } | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Live gesture state. During drag/resize we mutate the DOM style directly
+  // (no React state) and only commit to the store on pointer-up — this avoids
+  // re-rendering the window (and its app body) on every move, killing flicker.
+  const dragRef = useRef<{ startX: number; startY: number; winX: number; winY: number; lastX: number; lastY: number } | null>(null);
   const resizeRef = useRef<{
     dir: ResizeDir;
     startX: number;
@@ -25,6 +36,10 @@ export function Window({ win }: { win: WindowState }) {
     y: number;
     w: number;
     h: number;
+    lastX: number;
+    lastY: number;
+    lastW: number;
+    lastH: number;
   } | null>(null);
 
   const isFocused = focusedId === win.id;
@@ -33,21 +48,26 @@ export function Window({ win }: { win: WindowState }) {
     if (win.maximized) return;
     if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
     focus(win.id);
-    dragRef.current = { startX: e.clientX, startY: e.clientY, winX: win.x, winY: win.y };
+    dragRef.current = { startX: e.clientX, startY: e.clientY, winX: win.x, winY: win.y, lastX: win.x, lastY: win.y };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
 
   function onHeaderPointerMove(e: React.PointerEvent) {
     const d = dragRef.current;
-    if (!d) return;
+    if (!d || !rootRef.current) return;
     const nx = d.winX + (e.clientX - d.startX);
     const ny = Math.max(0, d.winY + (e.clientY - d.startY));
-    move(win.id, nx, ny);
+    d.lastX = nx;
+    d.lastY = ny;
+    rootRef.current.style.left = `${nx}px`;
+    rootRef.current.style.top = `${ny}px`;
   }
 
   function onHeaderPointerUp(e: React.PointerEvent) {
+    const d = dragRef.current;
     dragRef.current = null;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    if (d) move(win.id, d.lastX, d.lastY);
   }
 
   function startResize(dir: ResizeDir) {
@@ -62,6 +82,10 @@ export function Window({ win }: { win: WindowState }) {
         y: win.y,
         w: win.width,
         h: win.height,
+        lastX: win.x,
+        lastY: win.y,
+        lastW: win.width,
+        lastH: win.height,
       };
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     };
@@ -69,7 +93,7 @@ export function Window({ win }: { win: WindowState }) {
 
   function onResizeMove(e: React.PointerEvent) {
     const r = resizeRef.current;
-    if (!r) return;
+    if (!r || !rootRef.current) return;
     const dx = e.clientX - r.startX;
     const dy = e.clientY - r.startY;
     let { x, y, w, h } = r;
@@ -83,20 +107,24 @@ export function Window({ win }: { win: WindowState }) {
       h = Math.max(MIN_H, r.h - dy);
       y = Math.max(TOPBAR_H, r.y + (r.h - h));
     }
-    resize(win.id, w, h, x, y);
+    r.lastX = x; r.lastY = y; r.lastW = w; r.lastH = h;
+    const el = rootRef.current.style;
+    el.left = `${x}px`; el.top = `${y}px`; el.width = `${w}px`; el.height = `${h}px`;
   }
 
   function onResizeUp(e: React.PointerEvent) {
+    const r = resizeRef.current;
     resizeRef.current = null;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    if (r) resize(win.id, r.lastW, r.lastH, r.lastX, r.lastY);
   }
 
-  const Body = app?.component;
   const maximize = () =>
     toggleMaximize(win.id, { width: window.innerWidth, height: window.innerHeight });
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         "animate-win-open shadow-window absolute flex flex-col overflow-hidden border border-black/5 bg-card dark:border-white/10",
         win.maximized ? "rounded-2xl" : "rounded-2xl"
@@ -169,7 +197,7 @@ export function Window({ win }: { win: WindowState }) {
       </div>
 
       {/* Body */}
-      <div className="min-h-0 flex-1 overflow-hidden">{Body ? <Body /> : null}</div>
+      <div className="min-h-0 flex-1 overflow-hidden"><WindowBody appId={win.appId} /></div>
 
       {/* Resize handles */}
       {!win.maximized && (

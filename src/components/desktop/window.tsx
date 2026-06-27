@@ -59,8 +59,7 @@ export function Window({ win }: { win: WindowState }) {
     const ny = Math.max(0, d.winY + (e.clientY - d.startY));
     d.lastX = nx;
     d.lastY = ny;
-    rootRef.current.style.left = `${nx}px`;
-    rootRef.current.style.top = `${ny}px`;
+    rootRef.current.style.transform = `translate3d(${nx}px, ${ny}px, 0)`;
   }
 
   function onHeaderPointerUp(e: React.PointerEvent) {
@@ -109,7 +108,7 @@ export function Window({ win }: { win: WindowState }) {
     }
     r.lastX = x; r.lastY = y; r.lastW = w; r.lastH = h;
     const el = rootRef.current.style;
-    el.left = `${x}px`; el.top = `${y}px`; el.width = `${w}px`; el.height = `${h}px`;
+    el.transform = `translate3d(${x}px, ${y}px, 0)`; el.width = `${w}px`; el.height = `${h}px`;
   }
 
   function onResizeUp(e: React.PointerEvent) {
@@ -130,8 +129,11 @@ export function Window({ win }: { win: WindowState }) {
         win.maximized ? "rounded-2xl" : "rounded-2xl"
       )}
       style={{
-        left: win.x,
-        top: win.y,
+        // Position via transform so each window is its own GPU compositor
+        // layer — dragging one window won't repaint the others (no flicker).
+        left: 0,
+        top: 0,
+        transform: `translate3d(${win.x}px, ${win.y}px, 0)`,
         width: win.width,
         height: win.height,
         zIndex: win.zIndex,

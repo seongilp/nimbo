@@ -39,7 +39,7 @@ function fileIcon(entry: FileEntry) {
 }
 
 export function FileStation() {
-  const [path, setPath] = useState("/volume1");
+  const [path, setPath] = useState("/");
   const { data: listing, loading, refresh } = usePoll<DirListing>(
     `/api/files?path=${encodeURIComponent(path)}`,
     0
@@ -59,23 +59,27 @@ export function FileStation() {
           </p>
         </div>
         <ScrollArea className="flex-1 px-2">
-          <SidebarItem icon={Home} label="Root" active={path === "/"} onClick={() => setPath("/")} />
-          <SidebarItem
-            icon={HardDrive}
-            label="volume1"
-            active={path === "/volume1"}
-            onClick={() => setPath("/volume1")}
-          />
-          <SidebarItem
-            icon={HardDrive}
-            label="volume2"
-            active={path === "/volume2"}
-            onClick={() => setPath("/volume2")}
-          />
+          <SidebarItem icon={Home} label="Root (/)" active={path === "/"} onClick={() => setPath("/")} />
+          {/* Quick links to common locations; harmless if they don't exist on this host. */}
+          {[
+            { label: "home", path: "/home" },
+            { label: "mnt", path: "/mnt" },
+            { label: "srv", path: "/srv" },
+          ].map((loc) => (
+            <SidebarItem
+              key={loc.path}
+              icon={HardDrive}
+              label={loc.label}
+              active={path === loc.path}
+              onClick={() => setPath(loc.path)}
+            />
+          ))}
 
-          <p className="mt-4 px-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Shared folders
-          </p>
+          {smbShares.length > 0 && (
+            <p className="mt-4 px-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Shared folders
+            </p>
+          )}
           {smbShares.map((s) => (
             <SidebarItem
               key={s.name}

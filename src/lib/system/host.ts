@@ -170,7 +170,7 @@ async function readInterfaces(): Promise<NetInterfaceConfig[]> {
   const out: NetInterfaceConfig[] = [];
   try {
     const addrRes = await run("ip -j addr");
-    if (addrRes.code !== 0 || !addrRes.stdout.trim()) return state.interfaces;
+    if (addrRes.code !== 0 || !addrRes.stdout.trim()) return [];
 
     const links = JSON.parse(addrRes.stdout) as IpLink[];
 
@@ -201,9 +201,9 @@ async function readInterfaces(): Promise<NetInterfaceConfig[]> {
       });
     }
   } catch {
-    return state.interfaces;
+    return [];
   }
-  return out.length ? out : state.interfaces;
+  return out; // real interfaces only — no mock fallback
 }
 
 // --------------------------------------------------------------------------

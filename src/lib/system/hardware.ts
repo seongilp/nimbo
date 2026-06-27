@@ -30,18 +30,38 @@ interface State {
   testUntil: number;
 }
 
-const state: State = {
-  shutdownDelaySeconds: 120,
-  shutdownAtPercent: 20,
-  upsMode: "standalone",
-  snmp: {
+// Demo SNMP config — only used in mock/dev mode. On a real deployment the
+// config starts from neutral empty defaults and is filled from the actual
+// /etc/snmp/snmpd.conf (or left empty if absent).
+function seedSnmp(): SnmpConfig {
+  return {
     enabled: false,
     version: "v2c",
     community: "public",
     location: "서버실 랙 A",
     contact: "admin@nas.local",
     port: 161,
-  },
+  };
+}
+
+function defaultSnmp(): SnmpConfig {
+  return {
+    enabled: false,
+    version: "v2c",
+    community: "",
+    location: "",
+    contact: "",
+    port: 161,
+  };
+}
+
+const state: State = {
+  // Plain config defaults — acceptable in both modes.
+  shutdownDelaySeconds: 120,
+  shutdownAtPercent: 20,
+  upsMode: "standalone",
+  // Rich demo SNMP only in mock mode; neutral empty defaults on real deploys.
+  snmp: USE_MOCK ? seedSnmp() : defaultSnmp(),
   testUntil: 0,
 };
 
@@ -86,7 +106,7 @@ function parseUpsc(out: string): Record<string, string> {
 async function readRealUps(): Promise<UpsStatus> {
   const offline: UpsStatus = {
     connected: false,
-    model: "—",
+    model: "",
     status: "offline",
     batteryPercent: 0,
     loadPercent: 0,

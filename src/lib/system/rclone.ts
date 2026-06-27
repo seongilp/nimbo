@@ -38,58 +38,64 @@ interface State {
   jobs: CloudJob[];
 }
 
+// Demo seed data — used ONLY in mock/dev mode (USE_MOCK). In real mode remotes
+// come from `rclone listremotes` (or [] if rclone is missing) and jobs start [].
+const DEMO_REMOTES: RcloneRemote[] = [
+  { name: "s3-backup", type: "s3", usedBytes: 312 * GiB, totalBytes: null },
+  { name: "gdrive", type: "drive", usedBytes: 9.4 * GiB, totalBytes: 15 * GiB },
+  { name: "dropbox", type: "dropbox", usedBytes: 1.7 * GiB, totalBytes: 2 * GiB },
+  { name: "b2-cold", type: "b2", usedBytes: 1240 * GiB, totalBytes: null },
+];
+
+const DEMO_JOBS: CloudJob[] = [
+  {
+    id: "cjob-1",
+    name: "사진 → S3 백업",
+    direction: "push",
+    remote: "s3-backup:nas/photos",
+    localPath: "/volume1/Photos",
+    operation: "sync",
+    schedule: "daily",
+    lastRun: Date.now() - 9 * 3600_000,
+    lastStatus: "success",
+    lastBytes: 6.1 * GiB,
+    lastFiles: 2310,
+    nextRun: Date.now() + 15 * 3600_000,
+  },
+  {
+    id: "cjob-2",
+    name: "구글 드라이브에서 문서 가져오기",
+    direction: "pull",
+    remote: "gdrive:Work/Documents",
+    localPath: "/volume1/Documents",
+    operation: "copy",
+    schedule: "hourly",
+    lastRun: Date.now() - 18 * 60_000,
+    lastStatus: "success",
+    lastBytes: 124 * 1024 * 1024,
+    lastFiles: 87,
+    nextRun: Date.now() + 42 * 60_000,
+  },
+  {
+    id: "cjob-3",
+    name: "영상 → 콜드 보관소",
+    direction: "push",
+    remote: "b2-cold:archive/movies",
+    localPath: "/volume1/Movies",
+    operation: "sync",
+    schedule: "weekly",
+    lastRun: Date.now() - 2 * 86_400_000,
+    lastStatus: "failed",
+    lastBytes: 0,
+    lastFiles: 0,
+    lastError: "Failed to copy: 403 Forbidden — application key expired",
+    nextRun: Date.now() + 5 * 86_400_000,
+  },
+];
+
 const state: State = {
-  remotes: [
-    { name: "s3-backup", type: "s3", usedBytes: 312 * GiB, totalBytes: null },
-    { name: "gdrive", type: "drive", usedBytes: 9.4 * GiB, totalBytes: 15 * GiB },
-    { name: "dropbox", type: "dropbox", usedBytes: 1.7 * GiB, totalBytes: 2 * GiB },
-    { name: "b2-cold", type: "b2", usedBytes: 1240 * GiB, totalBytes: null },
-  ],
-  jobs: [
-    {
-      id: "cjob-1",
-      name: "사진 → S3 백업",
-      direction: "push",
-      remote: "s3-backup:nas/photos",
-      localPath: "/volume1/Photos",
-      operation: "sync",
-      schedule: "daily",
-      lastRun: Date.now() - 9 * 3600_000,
-      lastStatus: "success",
-      lastBytes: 6.1 * GiB,
-      lastFiles: 2310,
-      nextRun: Date.now() + 15 * 3600_000,
-    },
-    {
-      id: "cjob-2",
-      name: "구글 드라이브에서 문서 가져오기",
-      direction: "pull",
-      remote: "gdrive:Work/Documents",
-      localPath: "/volume1/Documents",
-      operation: "copy",
-      schedule: "hourly",
-      lastRun: Date.now() - 18 * 60_000,
-      lastStatus: "success",
-      lastBytes: 124 * 1024 * 1024,
-      lastFiles: 87,
-      nextRun: Date.now() + 42 * 60_000,
-    },
-    {
-      id: "cjob-3",
-      name: "영상 → 콜드 보관소",
-      direction: "push",
-      remote: "b2-cold:archive/movies",
-      localPath: "/volume1/Movies",
-      operation: "sync",
-      schedule: "weekly",
-      lastRun: Date.now() - 2 * 86_400_000,
-      lastStatus: "failed",
-      lastBytes: 0,
-      lastFiles: 0,
-      lastError: "Failed to copy: 403 Forbidden — application key expired",
-      nextRun: Date.now() + 5 * 86_400_000,
-    },
-  ],
+  remotes: USE_MOCK ? DEMO_REMOTES : [],
+  jobs: USE_MOCK ? DEMO_JOBS : [],
 };
 
 function nextRunFor(schedule: SyncSchedule): number | null {

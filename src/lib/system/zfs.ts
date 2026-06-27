@@ -126,13 +126,16 @@ function seedSnapshots(): ZfsSnapshot[] {
   ];
 }
 
+// Demo arrays are seeded ONLY in mock/dev mode. On a real host pools/datasets/
+// snapshots/devices come from the real readers, and snapshot schedules are an
+// app-managed store that starts empty and fills as the user creates them.
 const mock: MockState = {
   scrub: {},
-  datasets: seedDatasets(),
-  snapshots: seedSnapshots(),
-  devices: seedDevices(),
-  schedules: seedSchedules(),
-  pools: seedPools(),
+  datasets: USE_MOCK ? seedDatasets() : [],
+  snapshots: USE_MOCK ? seedSnapshots() : [],
+  devices: USE_MOCK ? seedDevices() : [],
+  schedules: USE_MOCK ? seedSchedules() : [],
+  pools: USE_MOCK ? seedPools() : [],
 };
 
 function mockPoolsRead(): ZpoolInfo[] {

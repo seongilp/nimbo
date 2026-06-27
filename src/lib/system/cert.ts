@@ -63,12 +63,14 @@ function seedCerts(): TlsCert[] {
   ];
 }
 
+// Seeded demo certs are used ONLY in mock/dev mode. On a real host certs are
+// read from CERT_DIR via openssl; if none exist we return an empty list.
 const state: State = {
   enabled: true,
   httpPort: 80,
   httpsPort: 443,
   forceHttps: true,
-  certs: seedCerts(),
+  certs: USE_MOCK ? seedCerts() : [],
 };
 
 // --------------------------------------------------------------------------
@@ -147,10 +149,9 @@ export async function getHttpsConfig(): Promise<HttpsConfig> {
     };
   }
 
-  let certs = await listRealCerts();
-  // If nothing was found on disk, fall back to the seed certs so the UI isn't
-  // empty — but report a real (non-mock) environment.
-  if (certs.length === 0) certs = seedCerts();
+  // Real host: report exactly what is on disk. If CERT_DIR has no certs we
+  // return an empty list — never the demo certs.
+  const certs = await listRealCerts();
 
   return {
     enabled: state.enabled,

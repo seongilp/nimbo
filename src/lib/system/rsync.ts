@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 
 import type {
@@ -45,65 +45,71 @@ interface State {
   modules: RsyncModule[];
 }
 
+// Demo seed data — used ONLY in mock/dev mode (USE_MOCK). In real mode these
+// app-managed lists start EMPTY and modules are parsed from the live system.
+const DEMO_JOBS: RsyncJob[] = [
+  {
+    id: "job-1",
+    name: "사진 원격 백업",
+    direction: "push",
+    remote: "backup@nas2.local:/volume1/photos",
+    localPath: "/volume1/Photos",
+    archive: true,
+    compress: true,
+    deleteExtra: false,
+    schedule: "daily",
+    lastRun: Date.now() - 11 * 3600_000,
+    lastStatus: "success",
+    lastBytes: 4.2 * GiB,
+    lastFiles: 1284,
+    nextRun: Date.now() + 13 * 3600_000,
+  },
+  {
+    id: "job-2",
+    name: "오프사이트에서 문서 가져오기",
+    direction: "pull",
+    remote: "rsync://offsite.example.com/documents",
+    localPath: "/volume1/Documents",
+    archive: true,
+    compress: true,
+    deleteExtra: true,
+    schedule: "hourly",
+    lastRun: Date.now() - 26 * 60_000,
+    lastStatus: "success",
+    lastBytes: 88 * 1024 * 1024,
+    lastFiles: 42,
+    nextRun: Date.now() + 34 * 60_000,
+  },
+  {
+    id: "job-3",
+    name: "미디어 → 콜드 스토리지",
+    direction: "push",
+    remote: "cold@10.0.0.9:/mnt/cold/media",
+    localPath: "/volume1/Movies",
+    archive: true,
+    compress: false,
+    deleteExtra: false,
+    schedule: "weekly",
+    lastRun: Date.now() - 3 * 86_400_000,
+    lastStatus: "failed",
+    lastBytes: 0,
+    lastFiles: 0,
+    lastError: "ssh: connect to host 10.0.0.9 port 22: Connection timed out",
+    nextRun: Date.now() + 4 * 86_400_000,
+  },
+];
+
+const DEMO_MODULES: RsyncModule[] = [
+  { name: "media", path: "/volume1/Movies", readOnly: true, comment: "Read-only media library", hostsAllow: "192.168.1.0/24" },
+  { name: "backup", path: "/volume1/Backups", readOnly: false, comment: "Backup target", hostsAllow: "192.168.1.0/24 10.0.0.0/8" },
+  { name: "public", path: "/volume2/Media", readOnly: false, comment: "Public drop", hostsAllow: "*" },
+];
+
 const state: State = {
-  jobs: [
-    {
-      id: "job-1",
-      name: "사진 원격 백업",
-      direction: "push",
-      remote: "backup@nas2.local:/volume1/photos",
-      localPath: "/volume1/Photos",
-      archive: true,
-      compress: true,
-      deleteExtra: false,
-      schedule: "daily",
-      lastRun: Date.now() - 11 * 3600_000,
-      lastStatus: "success",
-      lastBytes: 4.2 * GiB,
-      lastFiles: 1284,
-      nextRun: Date.now() + 13 * 3600_000,
-    },
-    {
-      id: "job-2",
-      name: "오프사이트에서 문서 가져오기",
-      direction: "pull",
-      remote: "rsync://offsite.example.com/documents",
-      localPath: "/volume1/Documents",
-      archive: true,
-      compress: true,
-      deleteExtra: true,
-      schedule: "hourly",
-      lastRun: Date.now() - 26 * 60_000,
-      lastStatus: "success",
-      lastBytes: 88 * 1024 * 1024,
-      lastFiles: 42,
-      nextRun: Date.now() + 34 * 60_000,
-    },
-    {
-      id: "job-3",
-      name: "미디어 → 콜드 스토리지",
-      direction: "push",
-      remote: "cold@10.0.0.9:/mnt/cold/media",
-      localPath: "/volume1/Movies",
-      archive: true,
-      compress: false,
-      deleteExtra: false,
-      schedule: "weekly",
-      lastRun: Date.now() - 3 * 86_400_000,
-      lastStatus: "failed",
-      lastBytes: 0,
-      lastFiles: 0,
-      lastError: "ssh: connect to host 10.0.0.9 port 22: Connection timed out",
-      nextRun: Date.now() + 4 * 86_400_000,
-    },
-  ],
+  jobs: USE_MOCK ? DEMO_JOBS : [],
   enabled: true,
   port: 873,
-  modules: [
-    { name: "media", path: "/volume1/Movies", readOnly: true, comment: "Read-only media library", hostsAllow: "192.168.1.0/24" },
-    { name: "backup", path: "/volume1/Backups", readOnly: false, comment: "Backup target", hostsAllow: "192.168.1.0/24 10.0.0.0/8" },
-    { name: "public", path: "/volume2/Media", readOnly: false, comment: "Public drop", hostsAllow: "*" },
-  ],
+  modules: USE_MOCK ? DEMO_MODULES : [],
 };
 
 function generateConf(): string {
@@ -127,6 +133,43 @@ function generateConf(): string {
   return lines.join("\n");
 }
 
+/**
+ * Best-effort parse of a real rsyncd.conf into modules. Unknown/global keys are
+ * ignored; only `[module]` sections with a `path` become modules. Returns [] on
+ * any read/parse failure so real mode never invents modules.
+ */
+async function parseRealModules(): Promise<RsyncModule[]> {
+  let text: string;
+  try {
+    text = await readFile(RSYNC_CONF, "utf8");
+  } catch {
+    return [];
+  }
+  const modules: RsyncModule[] = [];
+  let current: RsyncModule | null = null;
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.replace(/[#;].*$/, "").trim();
+    if (!line) continue;
+    const section = line.match(/^\[(.+)\]$/);
+    if (section) {
+      if (current && current.path) modules.push(current);
+      current = { name: section[1].trim(), path: "", readOnly: true, comment: "", hostsAllow: "*" };
+      continue;
+    }
+    if (!current) continue;
+    const kv = line.match(/^([^=]+?)\s*=\s*(.*)$/);
+    if (!kv) continue;
+    const key = kv[1].trim().toLowerCase();
+    const value = kv[2].trim();
+    if (key === "path") current.path = value;
+    else if (key === "comment") current.comment = value;
+    else if (key === "read only") current.readOnly = /^(yes|true|1)$/i.test(value);
+    else if (key === "hosts allow") current.hostsAllow = value;
+  }
+  if (current && current.path) modules.push(current);
+  return modules;
+}
+
 function buildServer(): RsyncServer {
   return { enabled: state.enabled, port: state.port, modules: state.modules, generatedConf: generateConf() };
 }
@@ -141,6 +184,8 @@ export async function getBackupOverview(): Promise<BackupOverview> {
     const { code } = await run("systemctl is-active --quiet rsync");
     enabled = code === 0;
     state.enabled = enabled;
+    // Reflect the real server config: modules come from /etc/rsyncd.conf only.
+    state.modules = await parseRealModules();
   }
   return {
     jobs: state.jobs,

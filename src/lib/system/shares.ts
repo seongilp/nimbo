@@ -80,5 +80,5 @@ export async function getShares(): Promise<ShareInfo[]> {
   } catch {
     // nfs not configured
   }
-  return shares.length ? shares : mockShares();
+  return shares; // real shares only — empty if samba/nfs not configured (no mock fallback)
 }

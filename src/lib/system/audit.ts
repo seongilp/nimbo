@@ -61,8 +61,10 @@ function buildSeed(): AuditEntry[] {
   }));
 }
 
-// Module-level mutable log, newest first.
-let entries: AuditEntry[] = buildSeed();
+// Module-level mutable log, newest first. Demo entries are only seeded in
+// mock/dev mode; on a real deployment the log starts empty and is populated
+// solely by real logAudit() calls.
+let entries: AuditEntry[] = USE_MOCK ? buildSeed() : [];
 
 // --------------------------------------------------------------------------
 // Overview

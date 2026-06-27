@@ -29,8 +29,10 @@ interface State {
   events: NotifyEvent[];
 }
 
-const state: State = {
-  targets: [
+// Demo targets — only seeded in mock/dev mode. On a real deployment the
+// operator configures their own notification targets.
+function seedTargets(): NotifyTarget[] {
+  return [
     {
       id: "tgt-slack",
       channel: "slack",
@@ -55,13 +57,13 @@ const state: State = {
       chatId: "",
       enabled: false,
     },
-  ],
-  rules: EVENT_TYPES.map((event) => ({
-    event,
-    // Most events on by default; the chatty "login" event is off.
-    enabled: event !== "login",
-  })),
-  events: [
+  ];
+}
+
+// Demo event history — only seeded in mock/dev mode. On a real deployment the
+// log starts empty and is populated solely by real emitEvent() calls.
+function seedEvents(): NotifyEvent[] {
+  return [
     {
       id: "evt-seed-1",
       ts: Date.now() - 8 * 60_000,
@@ -107,7 +109,19 @@ const state: State = {
       message: "volume1 사용량이 92%에 도달했습니다. 정리를 고려하세요.",
       delivered: [],
     },
-  ],
+  ];
+}
+
+const state: State = {
+  // Seeded demo data only in mock/dev mode; empty on real deployments.
+  targets: USE_MOCK ? seedTargets() : [],
+  // Rules are config defaults (one per event type) — present in both modes.
+  rules: EVENT_TYPES.map((event) => ({
+    event,
+    // Most events on by default; the chatty "login" event is off.
+    enabled: event !== "login",
+  })),
+  events: USE_MOCK ? seedEvents() : [],
 };
 
 // --------------------------------------------------------------------------

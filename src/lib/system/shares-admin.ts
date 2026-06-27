@@ -17,8 +17,11 @@ interface State {
   services: FileServices;
 }
 
-const state: State = {
-  folders: [
+// Seeded demo shares — used ONLY in mock/dev mode. On a real host shares are
+// parsed from /etc/samba + /etc/exports and services from systemctl; we never
+// invent demo folders.
+function seedFolders(): SharedFolder[] {
+  return [
     {
       name: "Movies",
       path: "/volume1/Movies",
@@ -74,8 +77,12 @@ const state: State = {
       validUsers: "",
       usedBytes: 1536 * GiB,
     },
-  ],
-  services: { smb: true, nfs: true, afp: false },
+  ];
+}
+
+const state: State = {
+  folders: USE_MOCK ? seedFolders() : [],
+  services: USE_MOCK ? { smb: true, nfs: true, afp: false } : { smb: false, nfs: false, afp: false },
 };
 
 // --------------------------------------------------------------------------

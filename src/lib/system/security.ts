@@ -28,8 +28,10 @@ interface State {
   twoFactor: TwoFactorState;
 }
 
-const state: State = {
-  firewall: {
+// Seeded demo firewall — used ONLY in mock/dev mode. On a real host we never
+// invent rules; we parse the real ufw state (or return a neutral empty state).
+function seedFirewall(): FirewallState {
+  return {
     enabled: true,
     defaultIncoming: "deny",
     rules: [
@@ -40,7 +42,16 @@ const state: State = {
       { id: "rule-5", action: "allow", direction: "in", protocol: "tcp", port: "5000", source: "any", comment: "NAS UI" },
       { id: "rule-6", action: "deny", direction: "in", protocol: "tcp", port: "23", source: "any", comment: "Telnet 차단" },
     ],
-  },
+  };
+}
+
+// Neutral empty firewall for real mode before any real read succeeds.
+function emptyFirewall(): FirewallState {
+  return { enabled: false, defaultIncoming: "deny", rules: [] };
+}
+
+const state: State = {
+  firewall: USE_MOCK ? seedFirewall() : emptyFirewall(),
   twoFactor: {
     enabled: false,
     secret: "",
@@ -247,38 +258,69 @@ function buildChecks(fw: FirewallState, tfa: TwoFactorState): SecurityCheck[] {
 }
 
 async function buildRealChecks(fw: FirewallState, tfa: TwoFactorState): Promise<SecurityCheck[]> {
-  // Start from the curated list, then overlay a couple of real signals best-effort.
-  const checks = buildChecks(fw, tfa);
+  // Real host: only return checks we can actually evaluate from the system.
+  // Never fabricate "passed/failed" curated checks — omit anything we can't
+  // measure honestly.
+  const checks: SecurityCheck[] = [];
 
+  // Firewall — derived from the real ufw state we already parsed.
+  checks.push({
+    id: "firewall-enabled",
+    title: "방화벽 활성화",
+    severity: fw.enabled ? "ok" : "high",
+    passed: fw.enabled,
+    detail: fw.enabled ? "ufw 방화벽이 활성화되어 있습니다." : "방화벽이 꺼져 있어 모든 포트가 노출됩니다.",
+    recommendation: fw.enabled ? "기본 수신 정책을 deny로 유지하세요." : "방화벽을 활성화하고 필요한 포트만 허용하세요.",
+  });
+
+  // SSH root login — only when sshd_config is readable.
   const sshd = await run("grep -Ei '^[[:space:]]*PermitRootLogin' /etc/ssh/sshd_config");
   if (sshd.code === 0) {
     const rootDisabled = /no/i.test(sshd.stdout);
-    const c = checks.find((x) => x.id === "ssh-root-login");
-    if (c) {
-      c.passed = rootDisabled;
-      c.severity = rootDisabled ? "ok" : "high";
-      c.detail = rootDisabled ? "PermitRootLogin 이 no 로 설정되어 있습니다." : "PermitRootLogin 이 no 가 아닙니다.";
-    }
+    checks.push({
+      id: "ssh-root-login",
+      title: "SSH 루트 로그인 비활성화",
+      severity: rootDisabled ? "ok" : "high",
+      passed: rootDisabled,
+      detail: rootDisabled ? "PermitRootLogin 이 no 로 설정되어 있습니다." : "PermitRootLogin 이 no 가 아닙니다.",
+      recommendation: "PermitRootLogin no 로 변경하고 sudo 권한의 일반 계정을 사용하세요.",
+    });
   }
 
+  // SSH password auth — only when sshd_config is readable.
   const pwAuth = await run("grep -Ei '^[[:space:]]*PasswordAuthentication' /etc/ssh/sshd_config");
   if (pwAuth.code === 0) {
     const disabled = /no/i.test(pwAuth.stdout);
-    const c = checks.find((x) => x.id === "ssh-password-auth");
-    if (c) {
-      c.passed = disabled;
-      c.severity = disabled ? "ok" : "medium";
-      c.detail = disabled ? "비밀번호 인증이 비활성화되어 있습니다." : "비밀번호 인증이 허용되어 있습니다.";
-    }
+    checks.push({
+      id: "ssh-password-auth",
+      title: "SSH 비밀번호 인증",
+      severity: disabled ? "ok" : "medium",
+      passed: disabled,
+      detail: disabled ? "비밀번호 인증이 비활성화되어 있습니다." : "비밀번호 인증이 허용되어 있습니다.",
+      recommendation: "공개키 인증만 허용하고 PasswordAuthentication no 로 설정하세요.",
+    });
   }
 
+  // Automatic security updates — measurable via command presence.
   const unattended = await hasCommand("unattended-upgrade");
-  const au = checks.find((x) => x.id === "auto-updates");
-  if (au) {
-    au.passed = unattended;
-    au.severity = unattended ? "low" : "medium";
-    au.detail = unattended ? "unattended-upgrades 가 설치되어 있습니다." : "자동 보안 업데이트가 설치되어 있지 않습니다.";
-  }
+  checks.push({
+    id: "auto-updates",
+    title: "자동 보안 업데이트",
+    severity: unattended ? "low" : "medium",
+    passed: unattended,
+    detail: unattended ? "unattended-upgrades 가 설치되어 있습니다." : "자동 보안 업데이트가 설치되어 있지 않습니다.",
+    recommendation: "업데이트 알림을 이메일로 받도록 구성하면 더욱 좋습니다.",
+  });
+
+  // 2FA — app-managed state, always known.
+  checks.push({
+    id: "two-factor",
+    title: "2단계 인증(2FA)",
+    severity: tfa.enabled ? "ok" : "medium",
+    passed: tfa.enabled,
+    detail: tfa.enabled ? "관리자 계정에 TOTP 2FA가 활성화되어 있습니다." : "관리자 계정에 2FA가 설정되어 있지 않습니다.",
+    recommendation: tfa.enabled ? "복구 코드를 안전한 곳에 보관하세요." : "2단계 인증 탭에서 TOTP 2FA를 설정하세요.",
+  });
 
   return checks;
 }

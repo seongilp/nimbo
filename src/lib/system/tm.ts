@@ -16,26 +16,30 @@ interface State {
   targets: TimeMachineTarget[];
 }
 
+// Demo seed data — used ONLY in mock/dev mode (USE_MOCK). In real mode targets
+// start EMPTY and are managed by the app / reflected from the live config.
+const DEMO_TARGETS: TimeMachineTarget[] = [
+  {
+    id: "tm-1",
+    name: "맥북프로 백업",
+    path: "/volume1/TimeMachine",
+    quotaBytes: 2 * TiB,
+    usedBytes: 0.8 * TiB,
+    enabled: true,
+  },
+  {
+    id: "tm-2",
+    name: "아이맥 백업",
+    path: "/volume1/TimeMachine-iMac",
+    quotaBytes: null,
+    usedBytes: 1.2 * TiB,
+    enabled: true,
+  },
+];
+
 const state: State = {
   enabled: true,
-  targets: [
-    {
-      id: "tm-1",
-      name: "맥북프로 백업",
-      path: "/volume1/TimeMachine",
-      quotaBytes: 2 * TiB,
-      usedBytes: 0.8 * TiB,
-      enabled: true,
-    },
-    {
-      id: "tm-2",
-      name: "아이맥 백업",
-      path: "/volume1/TimeMachine-iMac",
-      quotaBytes: null,
-      usedBytes: 1.2 * TiB,
-      enabled: true,
-    },
-  ],
+  targets: USE_MOCK ? DEMO_TARGETS : [],
 };
 
 /**

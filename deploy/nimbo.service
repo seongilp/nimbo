@@ -1,0 +1,35 @@
+[Unit]
+Description=Nimbo — server management UI
+Documentation=https://github.com/your-org/nimbo
+# Start after the network is up. We *Want* Docker but do NOT *Require* it:
+# the console must keep running (and be able to restart Docker) even if the
+# Docker daemon dies. This is the whole point of running natively, not in a
+# container.
+After=network-online.target
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+# Runs as root so it can manage disks, ZFS, systemd, firewall, users, etc.
+# To run hardened as a dedicated user instead, see DEPLOYMENT.md (sudoers).
+User=root
+WorkingDirectory=/opt/nimbo
+EnvironmentFile=/etc/nimbo/nimbo.env
+ExecStart=/usr/bin/node /opt/nimbo/server.js
+
+# Resilience: always come back, even after crashes or OOM.
+Restart=always
+RestartSec=2
+StartLimitIntervalSec=0
+
+# Logs go to the journal: journalctl -u nimbo -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nimbo
+
+# Light hardening (kept permissive because the app needs host access).
+NoNewPrivileges=false
+ProtectSystem=false
+
+[Install]
+WantedBy=multi-user.target

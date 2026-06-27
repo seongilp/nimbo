@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Nimbo
 
-## Getting Started
+A Synology DSM-style web UI to manage a Linux server like a NAS. It renders a
+desktop-in-the-browser: a wallpaper, a top taskbar, an app launcher, and
+draggable/resizable windows. Each "app" is a window.
 
-First, run the development server:
+Built with Next.js (App Router) + TypeScript + Tailwind + shadcn/ui + lucide-react.
+
+## Apps (v1)
+
+| App | What it does |
+| --- | --- |
+| **File Station** | Browse the filesystem, navigate Samba/NFS shares, breadcrumb + sidebar |
+| **Storage Manager** | Disks, partitions, usage bars, SMART health, temperature |
+| **Resource Monitor** | Live CPU / memory / network gauges + sparklines, top processes |
+| **Container Manager** | Docker containers with live CPU/mem, ports, start/stop/restart |
+
+## Architecture
+
+The app runs **directly on the server** it manages. UI and API live in one
+Next.js codebase. The API routes read real system state through a provider layer
+in `src/lib/system/`:
+
+- `stats.ts` — `/proc/stat`, `/proc/meminfo`, `/proc/net/dev`, `os` module
+- `storage.ts` — `lsblk -J`, `smartctl`
+- `files.ts` — `fs` with a path-traversal allowlist (`NAS_FILE_ROOTS`)
+- `docker.ts` — `docker ps` / `docker stats` and lifecycle actions
+- `shares.ts` — parses `/etc/samba/smb.conf` and `/etc/exports`
+
+Every provider has a **mock fallback** (`mock.ts`) so the UI runs on any OS during
+development. Mock mode auto-activates when not on Linux, or when `NAS_MOCK=1`.
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev          # http://localhost:3000  (mock data on macOS/Windows)
+NAS_MOCK=1 npm run dev   # force mock data even on Linux
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Production (on the Linux server)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build
+NAS_FILE_ROOTS=/volume1:/volume2 npm run start
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The Node process needs permission to read the paths and run the system commands
+it shells out to (`lsblk`, `smartctl`, `docker`). Run it as a user with the
+appropriate access (e.g. in the `docker` group, with sudo rules for `smartctl`),
+behind a reverse proxy with authentication.
 
-## Learn More
+### Environment variables
 
-To learn more about Next.js, take a look at the following resources:
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `NAS_MOCK` | unset | `1` forces demo data |
+| `NAS_FILE_ROOTS` | `/` | Colon-separated roots File Station may read |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Security notes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This v1 has **no authentication** — put it behind an authenticating reverse proxy
+(or a VPN) before exposing it. File access is constrained to `NAS_FILE_ROOTS`,
+and Docker actions are restricted to a fixed allowlist of verbs.

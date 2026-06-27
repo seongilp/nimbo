@@ -1,0 +1,30 @@
+# Caddy reverse proxy for Nimbo — automatic HTTPS in front of the app.
+# Install Caddy, drop this at /etc/caddy/Caddyfile, then: systemctl reload caddy
+#
+# Why a proxy? The app speaks plain HTTP on 127.0.0.1:3000. Caddy terminates
+# TLS on 443, auto-manages certificates, and redirects HTTP→HTTPS.
+
+# ── Option A: public domain (real Let's Encrypt, fully automatic) ──────────
+nas.example.com {
+    reverse_proxy 127.0.0.1:3000
+    encode zstd gzip
+}
+
+# ── Option B: LAN only, no public domain (internal HTTPS) ──────────────────
+# Caddy issues its own locally-trusted cert. Install the Caddy root CA on
+# your devices (`caddy trust`) to avoid browser warnings. Replace the IP.
+#
+# https://192.168.1.10 {
+#     tls internal
+#     reverse_proxy 127.0.0.1:3000
+# }
+
+# ── Option C: Let's Encrypt via DNS challenge (LAN box, real cert) ─────────
+# Needs a DNS provider plugin (e.g. xcaddy build with caddy-dns/cloudflare).
+#
+# nas.home.example.com {
+#     tls {
+#         dns cloudflare {env.CF_API_TOKEN}
+#     }
+#     reverse_proxy 127.0.0.1:3000
+# }

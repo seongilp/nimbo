@@ -1,0 +1,20 @@
+# Optional hardening: run Nimbo as a dedicated unprivileged user and
+# grant ONLY the specific privileged commands it needs via sudo.
+#
+# Use this ONLY if you change the systemd unit's User= to `nasconsole` AND
+# set NAS_SUDO_PREFIX=sudo in the env (the app prefixes privileged commands).
+# By default the unit runs as root and this file is unnecessary.
+#
+# Install: visudo -cf deploy/nimbo.sudoers && cp deploy/nimbo.sudoers /etc/sudoers.d/nimbo
+
+Cmnd_Alias NAS_SVC   = /usr/bin/systemctl, /bin/systemctl
+Cmnd_Alias NAS_ZFS   = /usr/sbin/zpool, /usr/sbin/zfs, /sbin/zpool, /sbin/zfs
+Cmnd_Alias NAS_DISK  = /usr/sbin/smartctl, /usr/bin/lsblk, /usr/sbin/lsblk
+Cmnd_Alias NAS_NET   = /usr/sbin/ufw, /usr/bin/nmcli, /usr/bin/hostnamectl, /usr/bin/timedatectl
+Cmnd_Alias NAS_USER  = /usr/sbin/useradd, /usr/sbin/userdel, /usr/sbin/usermod, /usr/sbin/groupadd, /usr/sbin/groupdel, /usr/sbin/chpasswd
+Cmnd_Alias NAS_SHARE = /usr/sbin/exportfs, /usr/bin/tee /etc/samba/*, /usr/bin/tee /etc/exports*
+Cmnd_Alias NAS_BACKUP= /usr/bin/rsync, /usr/bin/rclone
+Cmnd_Alias NAS_CERT  = /usr/bin/certbot, /usr/bin/openssl
+Cmnd_Alias NAS_DOCKER= /usr/bin/docker
+
+nasconsole ALL=(root) NOPASSWD: NAS_SVC, NAS_ZFS, NAS_DISK, NAS_NET, NAS_USER, NAS_SHARE, NAS_BACKUP, NAS_CERT, NAS_DOCKER

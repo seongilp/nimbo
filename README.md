@@ -1,10 +1,50 @@
-# Nimbo
+<p align="center"><img src="public/logo.svg" width="96" alt="Nimbo"></p>
 
-A Synology DSM-style web UI to manage a Linux server like a NAS. It renders a
-desktop-in-the-browser: a wallpaper, a top taskbar, an app launcher, and
-draggable/resizable windows. Each "app" is a window.
+<h1 align="center">Nimbo</h1>
+
+<p align="center"><strong>Your own cloud, self-hosted.</strong><br>당신만의 클라우드, 당신의 서버에.</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Next.js-App%20Router-000?logo=nextdotjs&logoColor=white" alt="Next.js">
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Tailwind-v4-38BDF8?logo=tailwindcss&logoColor=white" alt="Tailwind">
+  <img src="https://img.shields.io/badge/shadcn%2Fui-slate-0f172a" alt="shadcn/ui">
+  <img src="https://img.shields.io/badge/License-MIT-3B82F6" alt="MIT">
+</p>
+
+<p align="center"><img src="public/screenshots/desktop.png" width="900" alt="Nimbo desktop console"></p>
+
+Nimbo is a Synology DSM-style web console to manage a Linux server like a NAS. It
+renders a desktop-in-the-browser: a wallpaper, a top taskbar, an app launcher,
+and draggable/resizable windows. Each "app" is a window.
+
+> A polished marketing landing page lives at the **`/landing`** route
+> (`src/app/landing/page.tsx`).
 
 Built with Next.js (App Router) + TypeScript + Tailwind + shadcn/ui + lucide-react.
+
+## Features
+
+- 🖥️ **데스크톱 UI** — macOS 스타일 윈도우 · 도크 · ⌘K 커맨드 팔레트
+- 🗄️ **ZFS 관리** — 풀 · 데이터셋 · 스냅샷 · 복제
+- 💾 **백업 & 동기화** — rsync · rclone 클라우드 · Time Machine
+- 📦 **컨테이너 & 패키지 센터** — Docker 제어 + 원클릭 셀프호스팅 앱
+- 🛡️ **보안** — 방화벽 · 2FA · 감사 로그
+- 👥 **사용자 / 공유폴더** — 계정 권한 + Samba · NFS 공유
+- 📊 **모니터링 대시보드** — CPU · 메모리 · 네트워크 · 스토리지 실시간
+- 🔒 **HTTPS / 인증서** — Caddy 리버스 프록시 자동 TLS
+- 🔌 **UPS / SNMP** 모니터링 · 🔔 **알림** (Slack / Telegram / Discord)
+- ⚙️ **systemd 네이티브 배포** — Docker 없이 직접 실행, Docker가 죽어도 생존
+
+## Screenshots
+
+| 모니터링 대시보드 | ZFS 스토리지 |
+| --- | --- |
+| ![Dashboard](public/screenshots/dashboard.png) | ![ZFS](public/screenshots/zfs.png) |
+
+| 패키지 센터 | 보안 센터 |
+| --- | --- |
+| ![Packages](public/screenshots/packages.png) | ![Security](public/screenshots/security.png) |
 
 ## Apps (v1)
 

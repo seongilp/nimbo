@@ -146,6 +146,8 @@ export async function login(user: string, password: string, ip: string): Promise
 
   if (!(await verifyOsPassword(user, password))) {
     recordFail(ip);
+    // Structured line for the fail2ban `nimbo` jail (read from journald).
+    console.warn(`Nimbo authentication failure from ${ip} (user=${user})`);
     return { ok: false, error: "사용자 이름 또는 비밀번호가 올바르지 않습니다.", lockedFor: loginLocked(ip) || undefined };
   }
   recordSuccess(ip);

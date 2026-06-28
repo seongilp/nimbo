@@ -143,6 +143,27 @@ EOF
   systemctl reload caddy || systemctl restart caddy || true
 fi
 
+# ── fail2ban (SSH + Nimbo login brute-force protection) ──────────────────
+echo "==> fail2ban 설치 & Nimbo jail 등록"
+if ! command -v fail2ban-client >/dev/null; then
+  pkg_install fail2ban || true
+fi
+# systemd backend needs the python journal bindings.
+case "$PKG" in
+  dnf|yum) command -v fail2ban-client >/dev/null && pkg_install python3-systemd || true ;;
+  apt)     command -v fail2ban-client >/dev/null && pkg_install python3-systemd || true ;;
+esac
+if command -v fail2ban-client >/dev/null; then
+  mkdir -p /etc/fail2ban/filter.d /etc/fail2ban/jail.d
+  cp "$SRC/deploy/fail2ban/filter.d/nimbo.conf" /etc/fail2ban/filter.d/nimbo.conf
+  cp "$SRC/deploy/fail2ban/jail.d/nimbo.conf"   /etc/fail2ban/jail.d/nimbo.conf
+  systemctl enable --now fail2ban || true
+  fail2ban-client reload >/dev/null 2>&1 || systemctl restart fail2ban || true
+  echo "   jail 'nimbo' 등록됨 (5회/10분 실패 → 1시간 차단). 확인: fail2ban-client status nimbo"
+else
+  echo "   ⚠ fail2ban 설치 실패 — 내장 락아웃(5회/15분)만 동작합니다."
+fi
+
 # ── done ─────────────────────────────────────────────────────────────────
 echo ""
 echo "✅ 완료. (서비스 계정: $SVC_USER, passwordless sudo)"

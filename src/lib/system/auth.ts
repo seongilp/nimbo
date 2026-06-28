@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type { NimboAuthConfig, NimboRole, NimboUser } from "@/lib/types";
 import { run, USE_MOCK } from "./exec";
+import { logAudit } from "./audit";
 
 // Shared secret for signing session tokens. MUST be provided via NIMBO_SECRET
 // in production (install.sh generates one) so the Edge middleware verifies
@@ -148,9 +149,11 @@ export async function login(user: string, password: string, ip: string): Promise
     recordFail(ip);
     // Structured line for the fail2ban `nimbo` jail (read from journald).
     console.warn(`Nimbo authentication failure from ${ip} (user=${user})`);
+    logAudit(user, "로그인", "Nimbo 웹 콘솔", "failed", ip);
     return { ok: false, error: "사용자 이름 또는 비밀번호가 올바르지 않습니다.", lockedFor: loginLocked(ip) || undefined };
   }
   recordSuccess(ip);
+  logAudit(user, "로그인", "Nimbo 웹 콘솔", "success", ip);
 
   const cfg = await loadAuthConfig();
   let role: NimboRole;

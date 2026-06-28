@@ -92,10 +92,29 @@ export async function getSystemAdminOverview(): Promise<SystemAdminOverview> {
   return { services, cron, logs, isMock: false };
 }
 
-async function readServices(): Promise<ServiceUnit[]> {
+// Map every service's enabled state in ONE call. Doing a per-service
+// `systemctl is-enabled` (188+ sudo-wrapped spawns) made /api/system take ~13s.
+async function readEnabledMap(): Promise<Map<string, boolean>> {
+  const map = new Map<string, boolean>();
   const { stdout, code } = await run(
-    "systemctl list-units --type=service --all --no-legend --no-pager --plain"
+    "systemctl list-unit-files --type=service --no-legend --no-pager --plain"
   );
+  if (code !== 0) return map;
+  for (const line of stdout.split("\n")) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 2) continue;
+    const name = parts[0].replace(/\.service$/, "");
+    map.set(name, parts[1] === "enabled");
+  }
+  return map;
+}
+
+async function readServices(): Promise<ServiceUnit[]> {
+  const [list, enabledMap] = await Promise.all([
+    run("systemctl list-units --type=service --all --no-legend --no-pager --plain"),
+    readEnabledMap(),
+  ]);
+  const { stdout, code } = list;
   if (code !== 0 || !stdout.trim()) return [];
   const units: ServiceUnit[] = [];
   for (const line of stdout.split("\n")) {
@@ -111,12 +130,7 @@ async function readServices(): Promise<ServiceUnit[]> {
       activeRaw === "active" || activeRaw === "inactive" || activeRaw === "failed" || activeRaw === "activating"
         ? activeRaw
         : "inactive";
-    let enabled = false;
-    if (NAME_RE.test(name)) {
-      const { stdout: en } = await run(`systemctl is-enabled ${name}`);
-      enabled = en.trim() === "enabled";
-    }
-    units.push({ name, description, active, enabled, memoryBytes: 0 });
+    units.push({ name, description, active, enabled: enabledMap.get(name) ?? false, memoryBytes: 0 });
   }
   return units;
 }

@@ -1,5 +1,5 @@
 import type { AuditEntry, AuditOverview } from "@/lib/types";
-import { USE_MOCK } from "./exec";
+import { run, USE_MOCK } from "./exec";
 
 const MAX_ENTRIES = 500;
 
@@ -67,13 +67,50 @@ function buildSeed(): AuditEntry[] {
 let entries: AuditEntry[] = USE_MOCK ? buildSeed() : [];
 
 // --------------------------------------------------------------------------
+// Real system login history (from wtmp via `last`)
+// --------------------------------------------------------------------------
+// Parses one `last -F -i` row, e.g.:
+//   zihado  pts/0  192.168.1.5  Sat Jun 28 18:00:00 2026   still logged in
+//   root    pts/1  0.0.0.0      Sat Jun 28 12:00:00 2026 - 12:30 (00:30)
+const LAST_RE = /^(\S+)\s+(\S+)\s+(\S*)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})/;
+
+async function readLoginHistory(): Promise<AuditEntry[]> {
+  const { stdout, code } = await run("last -F -i -n 40");
+  if (code !== 0 || !stdout.trim()) return [];
+  const out: AuditEntry[] = [];
+  for (const line of stdout.split("\n")) {
+    if (!line.trim() || /^(wtmp|reboot|shutdown|runlevel)/.test(line)) continue;
+    const m = line.match(LAST_RE);
+    if (!m) continue;
+    const [, user, tty, from, dateStr] = m;
+    const ts = Date.parse(dateStr);
+    if (Number.isNaN(ts)) continue;
+    const ip = /^\d+\.\d+\.\d+\.\d+$/.test(from) && from !== "0.0.0.0" ? from : "로컬";
+    out.push({
+      id: `login-${ts}-${user}-${tty}`,
+      ts,
+      user,
+      action: "로그인 세션",
+      target: tty,
+      result: "success",
+      ip,
+    });
+  }
+  return out;
+}
+
+// --------------------------------------------------------------------------
 // Overview
 // --------------------------------------------------------------------------
 export async function getAuditOverview(): Promise<AuditOverview> {
-  return {
-    entries,
-    isMock: USE_MOCK,
-  };
+  if (USE_MOCK) return { entries, isMock: true };
+  // Merge in-app action log (ZFS/backup/login events recorded this session)
+  // with real OS login history, newest first, de-duplicated by id.
+  const history = await readLoginHistory().catch(() => []);
+  const merged = new Map<string, AuditEntry>();
+  for (const e of [...entries, ...history]) merged.set(e.id, e);
+  const all = [...merged.values()].sort((a, b) => b.ts - a.ts).slice(0, MAX_ENTRIES);
+  return { entries: all, isMock: false };
 }
 
 // --------------------------------------------------------------------------

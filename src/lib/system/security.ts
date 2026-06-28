@@ -168,6 +168,99 @@ async function readRealFirewall(): Promise<FirewallState> {
 }
 
 // --------------------------------------------------------------------------
+// Firewall — backend detection (ufw vs firewalld)
+// --------------------------------------------------------------------------
+type FirewallBackend = "ufw" | "firewalld" | "none";
+
+/**
+ * Detect which firewall backend is available on the host. Prefer ufw (Debian/
+ * Ubuntu); fall back to firewalld (RHEL/Rocky/CentOS/Fedora). Never throws.
+ */
+async function firewallBackend(): Promise<FirewallBackend> {
+  if (await hasCommand("ufw")) return "ufw";
+  if (await hasCommand("firewall-cmd")) return "firewalld";
+  return "none";
+}
+
+// Map well-known firewalld service names to their canonical port. Unknown
+// services have no entry and fall back to showing the service name itself.
+const FIREWALLD_SERVICE_PORTS: Record<string, string> = {
+  ssh: "22",
+  http: "80",
+  https: "443",
+  samba: "445",
+  nfs: "2049",
+};
+
+// firewalld single port (8096) or range (8000-8010) accepted for add/remove.
+const FIREWALLD_PORT_RE = /^([0-9]{1,5}|[0-9]+-[0-9]+)$/;
+
+/** Extract the value following a `key:` label inside `firewall-cmd --list-all`. */
+function parseListAllField(text: string, key: string): string {
+  for (const line of text.split("\n")) {
+    const m = line.match(new RegExp(`^\\s*${key}:\\s*(.*)$`));
+    if (m) return m[1].trim();
+  }
+  return "";
+}
+
+// --------------------------------------------------------------------------
+// Firewall — real (firewalld) reads
+// --------------------------------------------------------------------------
+async function readFirewalldFirewall(): Promise<FirewallState> {
+  // `firewall-cmd --state` prints "running" and exits 0 when active.
+  const stateRes = await run("firewall-cmd --state");
+  const enabled = stateRes.code === 0 && /running/i.test(stateRes.stdout);
+
+  const zoneRes = await run("firewall-cmd --get-default-zone");
+  const zone = zoneRes.stdout.trim() || "public";
+
+  const listAll = await run(`firewall-cmd --zone=${zone} --list-all`);
+  const text = listAll.stdout;
+
+  // Zone target: ACCEPT → allow incoming; otherwise (default/DROP/REJECT) deny.
+  const target = parseListAllField(text, "target");
+  const defaultIncoming: "allow" | "deny" = /ACCEPT/i.test(target) ? "allow" : "deny";
+
+  const rules: FirewallRule[] = [];
+
+  // services: ssh dhcpv6-client http  →  one rule per service
+  const services = parseListAllField(text, "services");
+  for (const svc of services.split(/\s+/).filter(Boolean)) {
+    const mapped = FIREWALLD_SERVICE_PORTS[svc];
+    rules.push({
+      id: `fwsvc-${svc}`,
+      action: "allow",
+      direction: "in",
+      protocol: "any",
+      port: mapped ?? svc,
+      source: "any",
+      comment: `${svc} (${zone})`,
+    });
+  }
+
+  // ports: 8096/tcp 53/udp  →  one rule per port entry
+  const ports = parseListAllField(text, "ports");
+  for (const entry of ports.split(/\s+/).filter(Boolean)) {
+    const m = entry.match(/^([0-9-]+)(?:\/(tcp|udp))?/);
+    if (!m) continue;
+    const port = m[1];
+    const protocol = (m[2] as FwProtocol) ?? "any";
+    rules.push({
+      id: `fwport-${port}-${protocol}`,
+      action: "allow",
+      direction: "in",
+      protocol,
+      port,
+      source: "any",
+      comment: zone,
+    });
+  }
+
+  return { enabled, defaultIncoming, rules };
+}
+
+// --------------------------------------------------------------------------
 // Security advisor
 // --------------------------------------------------------------------------
 function buildChecks(fw: FirewallState, tfa: TwoFactorState): SecurityCheck[] {
@@ -257,19 +350,25 @@ function buildChecks(fw: FirewallState, tfa: TwoFactorState): SecurityCheck[] {
   return checks;
 }
 
-async function buildRealChecks(fw: FirewallState, tfa: TwoFactorState): Promise<SecurityCheck[]> {
+async function buildRealChecks(
+  fw: FirewallState,
+  tfa: TwoFactorState,
+  backend: FirewallBackend = "ufw"
+): Promise<SecurityCheck[]> {
   // Real host: only return checks we can actually evaluate from the system.
   // Never fabricate "passed/failed" curated checks — omit anything we can't
   // measure honestly.
   const checks: SecurityCheck[] = [];
 
-  // Firewall — derived from the real ufw state we already parsed.
+  // Firewall — derived from the real state we already parsed. Reflect whichever
+  // backend is actually active (ufw vs firewalld).
+  const backendLabel = backend === "firewalld" ? "firewalld" : "ufw";
   checks.push({
     id: "firewall-enabled",
     title: "방화벽 활성화",
     severity: fw.enabled ? "ok" : "high",
     passed: fw.enabled,
-    detail: fw.enabled ? "ufw 방화벽이 활성화되어 있습니다." : "방화벽이 꺼져 있어 모든 포트가 노출됩니다.",
+    detail: fw.enabled ? `${backendLabel} 방화벽이 활성화되어 있습니다.` : "방화벽이 꺼져 있어 모든 포트가 노출됩니다.",
     recommendation: fw.enabled ? "기본 수신 정책을 deny로 유지하세요." : "방화벽을 활성화하고 필요한 포트만 허용하세요.",
   });
 
@@ -335,16 +434,20 @@ export async function getSecurityOverview(): Promise<SecurityOverview> {
   if (USE_MOCK) {
     checks = buildChecks(firewall, state.twoFactor);
   } else {
-    const ufwAvailable = await hasCommand("ufw");
-    if (ufwAvailable) {
-      try {
+    const backend = await firewallBackend();
+    try {
+      if (backend === "ufw") {
         firewall = await readRealFirewall();
-        state.firewall = firewall;
-      } catch {
-        firewall = state.firewall;
+      } else if (backend === "firewalld") {
+        firewall = await readFirewalldFirewall();
+      } else {
+        firewall = emptyFirewall();
       }
+      state.firewall = firewall;
+    } catch {
+      firewall = state.firewall;
     }
-    checks = await buildRealChecks(firewall, state.twoFactor);
+    checks = await buildRealChecks(firewall, state.twoFactor, backend);
   }
 
   return {
@@ -380,8 +483,17 @@ export async function runSecurityAction(a: SecurityAction): Promise<{ ok: boolea
     case "firewall.toggle": {
       state.firewall = { ...state.firewall, enabled: a.enabled };
       if (!USE_MOCK) {
-        const { code, stderr } = await run(a.enabled ? "ufw --force enable" : "ufw disable", { timeoutMs: 15000 });
-        if (code !== 0) return fail(stderr.trim() || "방화벽 변경에 root 권한 필요");
+        const backend = await firewallBackend();
+        if (backend === "firewalld") {
+          const cmd = a.enabled
+            ? "systemctl enable --now firewalld"
+            : "systemctl disable --now firewalld";
+          const { code, stderr } = await run(cmd, { timeoutMs: 15000 });
+          if (code !== 0) return fail(stderr.trim() || "방화벽 변경에 root 권한 필요");
+        } else if (backend === "ufw") {
+          const { code, stderr } = await run(a.enabled ? "ufw --force enable" : "ufw disable", { timeoutMs: 15000 });
+          if (code !== 0) return fail(stderr.trim() || "방화벽 변경에 root 권한 필요");
+        }
       }
       return ok();
     }
@@ -390,8 +502,20 @@ export async function runSecurityAction(a: SecurityAction): Promise<{ ok: boolea
       const def = a.defaultIncoming === "allow" ? "allow" : "deny";
       state.firewall = { ...state.firewall, defaultIncoming: def };
       if (!USE_MOCK) {
-        const { code, stderr } = await run(`ufw default ${def} incoming`, { timeoutMs: 15000 });
-        if (code !== 0) return fail(stderr.trim() || "기본 정책 변경에 root 권한 필요");
+        const backend = await firewallBackend();
+        if (backend === "firewalld") {
+          const zone = (await run("firewall-cmd --get-default-zone")).stdout.trim() || "public";
+          const tgt = def === "allow" ? "ACCEPT" : "default";
+          const setRes = await run(
+            `firewall-cmd --permanent --zone=${zone} --set-target=${tgt}`,
+            { timeoutMs: 15000 }
+          );
+          if (setRes.code !== 0) return fail(setRes.stderr.trim() || "기본 정책 변경에 root 권한 필요");
+          await run("firewall-cmd --reload", { timeoutMs: 15000 });
+        } else if (backend === "ufw") {
+          const { code, stderr } = await run(`ufw default ${def} incoming`, { timeoutMs: 15000 });
+          if (code !== 0) return fail(stderr.trim() || "기본 정책 변경에 root 권한 필요");
+        }
       }
       return ok();
     }
@@ -417,24 +541,66 @@ export async function runSecurityAction(a: SecurityAction): Promise<{ ok: boolea
       state.firewall = { ...state.firewall, rules: [...state.firewall.rules, rule] };
 
       if (!USE_MOCK) {
-        const proto = protocol === "any" ? "" : ` proto ${protocol}`;
-        const from = source === "any" ? "any" : source;
-        const cmd = `ufw ${action}${proto} from ${from} to any port ${port}`;
-        const { code, stderr } = await run(cmd, { timeoutMs: 15000 });
-        if (code !== 0) return fail(stderr.trim() || "규칙 추가에 root 권한 필요");
+        const backend = await firewallBackend();
+        if (backend === "firewalld") {
+          // firewalld has no concept of source/action per port here — it adds a
+          // permanent allow rule for the port on the default zone.
+          if (!FIREWALLD_PORT_RE.test(port)) return fail("포트 형식이 올바르지 않습니다.");
+          const protos = protocol === "any" ? ["tcp", "udp"] : [protocol];
+          for (const p of protos) {
+            const { code, stderr } = await run(
+              `firewall-cmd --permanent --add-port=${port}/${p}`,
+              { timeoutMs: 15000 }
+            );
+            if (code !== 0) return fail(stderr.trim() || "규칙 추가에 root 권한 필요");
+          }
+          await run("firewall-cmd --reload", { timeoutMs: 15000 });
+        } else if (backend === "ufw") {
+          const proto = protocol === "any" ? "" : ` proto ${protocol}`;
+          const from = source === "any" ? "any" : source;
+          const cmd = `ufw ${action}${proto} from ${from} to any port ${port}`;
+          const { code, stderr } = await run(cmd, { timeoutMs: 15000 });
+          if (code !== 0) return fail(stderr.trim() || "규칙 추가에 root 권한 필요");
+        }
       }
       return ok();
     }
 
     case "rule.delete": {
+      const removed = state.firewall.rules.find((x) => x.id === a.id);
       state.firewall = {
         ...state.firewall,
         rules: state.firewall.rules.filter((x) => x.id !== a.id),
       };
       if (!USE_MOCK) {
-        // Best-effort: ufw delete by rule number is fragile; reload from real state next poll.
-        const num = a.id.replace(/[^0-9]/g, "");
-        if (num) await run(`ufw --force delete ${num}`, { timeoutMs: 15000 });
+        const backend = await firewallBackend();
+        if (backend === "firewalld") {
+          // Best-effort: derive the firewalld object from the id we stored at
+          // read time (fwport-<port>-<proto> or fwsvc-<service>).
+          const portMatch = a.id.match(/^fwport-([0-9-]+)-(tcp|udp|any)$/);
+          const svcMatch = a.id.match(/^fwsvc-(.+)$/);
+          if (portMatch) {
+            const port = portMatch[1];
+            const protos = portMatch[2] === "any" ? ["tcp", "udp"] : [portMatch[2]];
+            for (const p of protos) {
+              await run(`firewall-cmd --permanent --remove-port=${port}/${p}`, { timeoutMs: 15000 });
+            }
+            await run("firewall-cmd --reload", { timeoutMs: 15000 });
+          } else if (svcMatch) {
+            await run(`firewall-cmd --permanent --remove-service=${svcMatch[1]}`, { timeoutMs: 15000 });
+            await run("firewall-cmd --reload", { timeoutMs: 15000 });
+          } else if (removed?.port && FIREWALLD_PORT_RE.test(removed.port)) {
+            const protos = removed.protocol === "any" ? ["tcp", "udp"] : [removed.protocol];
+            for (const p of protos) {
+              await run(`firewall-cmd --permanent --remove-port=${removed.port}/${p}`, { timeoutMs: 15000 });
+            }
+            await run("firewall-cmd --reload", { timeoutMs: 15000 });
+          }
+        } else if (backend === "ufw") {
+          // Best-effort: ufw delete by rule number is fragile; reload from real state next poll.
+          const num = a.id.replace(/[^0-9]/g, "");
+          if (num) await run(`ufw --force delete ${num}`, { timeoutMs: 15000 });
+        }
       }
       return ok();
     }

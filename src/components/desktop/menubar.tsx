@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Moon, Sun, Cpu, Thermometer, Cloud, Search } from "lucide-react";
+import { Moon, Sun, Cpu, Thermometer, Cloud, Search, LayoutGrid, Copy, Minus, X } from "lucide-react";
 
 import { APP_MAP } from "./app-registry";
 import {
@@ -36,7 +36,7 @@ function Clock() {
 
 export function MenuBar() {
   const { theme, toggle } = useTheme();
-  const { focusedId, windows, togglePalette } = useWindowStore();
+  const { focusedId, windows, togglePalette, tile, cascade, minimizeAll, closeAll } = useWindowStore();
   const { data: overview } = usePoll<SystemOverview>("/api/overview", 3000);
 
   const focused = windows.find((w) => w.id === focusedId && !w.minimized);
@@ -67,6 +67,29 @@ export function MenuBar() {
         <span className="text-[13px] font-semibold">
           {focusedApp ? focusedApp.name : "Nimbo"}
         </span>
+
+        {windows.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger className="rounded-md px-1.5 py-0.5 text-[13px] outline-none hover:bg-foreground/5">
+              창
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuItem onClick={() => tile({ width: window.innerWidth, height: window.innerHeight })}>
+                <LayoutGrid className="size-4" /> 바둑판 배열
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => cascade({ width: window.innerWidth, height: window.innerHeight })}>
+                <Copy className="size-4" /> 계단식 배열
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={minimizeAll}>
+                <Minus className="size-4" /> 모두 최소화
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={closeAll}>
+                <X className="size-4" /> 모두 닫기
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       <div className="flex items-center gap-3">

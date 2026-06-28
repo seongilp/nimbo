@@ -747,18 +747,26 @@ async function composeRunning(file: string, cmd: string): Promise<boolean> {
 export interface PackageAction {
   kind: string;
   id?: string;
+  yaml?: string;
 }
 
-function ok() {
-  return { ok: true as const };
+// Result objects may carry extra fields (`log`, `yaml`) so the route can
+// forward log output / compose contents back to the client.
+export interface PackageActionResult {
+  ok: boolean;
+  error?: string;
+  log?: string;
+  yaml?: string;
 }
-function fail(error: string) {
+
+function ok(extra?: { log?: string; yaml?: string }): PackageActionResult {
+  return { ok: true as const, ...extra };
+}
+function fail(error: string): PackageActionResult {
   return { ok: false as const, error };
 }
 
-export async function runPackageAction(
-  a: PackageAction
-): Promise<{ ok: boolean; error?: string }> {
+export async function runPackageAction(a: PackageAction): Promise<PackageActionResult> {
   const id = a.id ?? "";
   if (!ID_RE.test(id) || !CATALOG_IDS.has(id)) return fail("알 수 없는 앱입니다.");
   const app = CATALOG.find((c) => c.id === id)!;
@@ -772,6 +780,12 @@ export async function runPackageAction(
       return startApp(app);
     case "app.stop":
       return stopApp(app);
+    case "app.logs":
+      return logsApp(app);
+    case "app.composeGet":
+      return composeGet(app);
+    case "app.composeSave":
+      return composeSave(app, a.yaml ?? "");
     default:
       return fail("알 수 없는 작업입니다.");
   }
@@ -870,4 +884,85 @@ async function stopApp(app: CatalogEntry): Promise<{ ok: boolean; error?: string
 
   const { code, stderr } = await run(`docker stop ${app.id}`, { timeoutMs: 30_000 });
   return code === 0 ? ok() : fail(stderr.trim() || "중지에 실패했습니다.");
+}
+
+/** Build the compose YAML for an app, reusing its per-app DB password. */
+async function buildComposeYaml(app: CatalogEntry): Promise<string> {
+  const dir = appDir(app.id);
+  const dbPassword = USE_MOCK ? "demo-db-password" : await getDbPassword(app.id);
+  return app.compose({ appdata: dir, media: MEDIA, puid: PUID, pgid: PGID, tz: TZ, dbPassword });
+}
+
+/** Tail recent container logs for an installed app. */
+async function logsApp(app: CatalogEntry): Promise<PackageActionResult> {
+  if (USE_MOCK) {
+    const now = new Date().toISOString();
+    const log = [
+      `${now}  ${app.name} container starting…`,
+      `${now}  [INFO] using config from ${appDir(app.id)}`,
+      `${now}  [INFO] listening on port ${app.webPort ?? app.ports[0]}`,
+      `${now}  [INFO] healthcheck passed`,
+      `${now}  [INFO] ${app.name} ready`,
+    ].join("\n");
+    return ok({ log });
+  }
+
+  const file = composeFile(app.id);
+  if (await fileExists(file)) {
+    const cmd = await composeCmd();
+    const { stdout, stderr, code } = await run(
+      `${cmd} -f "${file}" logs --tail 300 --no-color`,
+      { timeoutMs: 30_000 }
+    );
+    if (code === 0) return ok({ log: stdout || stderr || "(로그가 없습니다.)" });
+    // fall through to legacy docker logs on failure
+  }
+
+  const { stdout, stderr, code } = await run(`docker logs --tail 300 ${app.id}`, {
+    timeoutMs: 30_000,
+  });
+  if (code === 0) return ok({ log: stdout || stderr || "(로그가 없습니다.)" });
+  return fail(stderr.trim() || "로그를 가져오지 못했습니다.");
+}
+
+/** Read the on-disk docker-compose.yml for an app. */
+async function composeGet(app: CatalogEntry): Promise<PackageActionResult> {
+  if (USE_MOCK) {
+    return ok({ yaml: await buildComposeYaml(app) });
+  }
+
+  const file = composeFile(app.id);
+  try {
+    const yaml = await fs.readFile(file, "utf8");
+    return ok({ yaml });
+  } catch {
+    // No compose file yet — offer the generated template as a starting point.
+    return ok({ yaml: await buildComposeYaml(app) });
+  }
+}
+
+/** Write a new docker-compose.yml and re-apply it with `up -d`. */
+async function composeSave(app: CatalogEntry, yaml: string): Promise<PackageActionResult> {
+  if (!yaml.trim()) return fail("compose 내용이 비어 있습니다.");
+
+  if (USE_MOCK) {
+    mockState[app.id] = { installed: true, running: true };
+    return ok();
+  }
+
+  const dir = appDir(app.id);
+  const file = composeFile(app.id);
+
+  const mk = await run(`mkdir -p "${dir}"`, { timeoutMs: 15_000 });
+  if (mk.code !== 0) return fail(mk.stderr.trim() || "데이터 폴더 생성에 실패했습니다.");
+
+  try {
+    await fs.writeFile(file, yaml, "utf8");
+  } catch (err) {
+    return fail((err as Error).message || "compose 파일 저장에 실패했습니다.");
+  }
+
+  const cmd = await composeCmd();
+  const { code, stderr } = await run(`${cmd} -f "${file}" up -d`, { timeoutMs: 300_000 });
+  return code === 0 ? ok() : fail(stderr.trim() || "적용에 실패했습니다.");
 }

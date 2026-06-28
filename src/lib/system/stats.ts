@@ -78,18 +78,35 @@ async function readMemory() {
       if (m) map[m[1]] = Number(m[2]) * 1024;
     }
     const memTotal = map.MemTotal ?? 0;
-    const memAvail = map.MemAvailable ?? map.MemFree ?? 0;
+    const memFree = map.MemFree ?? 0;
+    const memAvail = map.MemAvailable ?? memFree;
+    const buffCache = (map.Buffers ?? 0) + (map.Cached ?? 0) + (map.SReclaimable ?? 0);
+    const appUsed = Math.max(0, memTotal - memFree - buffCache);
     const swapTotal = map.SwapTotal ?? 0;
     const swapFree = map.SwapFree ?? 0;
     return {
-      memory: { totalBytes: memTotal, usedBytes: memTotal - memAvail, freeBytes: memAvail },
+      memory: {
+        totalBytes: memTotal,
+        usedBytes: memTotal - memAvail, // keep for the radial gauge
+        freeBytes: memFree,
+        buffCacheBytes: buffCache,
+        appUsedBytes: appUsed,
+      },
       swap: { totalBytes: swapTotal, usedBytes: swapTotal - swapFree, freeBytes: swapFree },
     };
   } catch {
+    // Non-Linux (e.g. macOS) fallback: no buffer/cache breakdown available.
     const total = os.totalmem();
     const free = os.freemem();
+    const used = total - free;
     return {
-      memory: { totalBytes: total, usedBytes: total - free, freeBytes: free },
+      memory: {
+        totalBytes: total,
+        usedBytes: used,
+        freeBytes: free,
+        buffCacheBytes: 0,
+        appUsedBytes: used,
+      },
       swap: { totalBytes: 0, usedBytes: 0, freeBytes: 0 },
     };
   }

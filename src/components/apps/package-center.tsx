@@ -24,6 +24,11 @@ import {
   Sparkles,
   ExternalLink,
   HardDrive,
+  ScrollText,
+  FileCode,
+  FileEdit,
+  RefreshCw,
+  Save,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -31,8 +36,19 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
 import { usePoll } from "@/lib/hooks/use-poll";
 import { cn } from "@/lib/utils";
 import type { PackageApp } from "@/lib/types";
@@ -79,6 +95,21 @@ const CATEGORY_STYLE: Record<string, { Icon: LucideIcon; color: string }> = {
 
 function styleFor(category: string) {
   return CATEGORY_STYLE[category] ?? { Icon: Package, color: "bg-gradient-to-b from-[#64748B] to-[#475569]" };
+}
+
+type CallResult = { ok: boolean; error?: string; log?: string; yaml?: string };
+
+/**
+ * POST an action and return the parsed JSON. Unlike `act`, this hands back the
+ * full result object so callers can read extra fields (`log`, `yaml`).
+ */
+async function call(body: Record<string, unknown>): Promise<CallResult> {
+  const res = await fetch("/api/packages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return (await res.json()) as CallResult;
 }
 
 /** Build a browser URL to an installed app's web UI using the current host. */
@@ -199,7 +230,7 @@ export function PackageCenter() {
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {featured.map((app) => (
-                <FeaturedCard key={app.id} app={app} busy={busy === app.id} act={act} />
+                <FeaturedCard key={app.id} app={app} busy={busy === app.id} act={act} refresh={refresh} />
               ))}
             </div>
           </div>
@@ -215,7 +246,7 @@ export function PackageCenter() {
           )}
           <div className="grid gap-3 pb-4 sm:grid-cols-2 lg:grid-cols-3">
             {visible.map((app) => (
-              <AppCard key={app.id} app={app} busy={busy === app.id} act={act} />
+              <AppCard key={app.id} app={app} busy={busy === app.id} act={act} refresh={refresh} />
             ))}
           </div>
         </div>
@@ -239,7 +270,152 @@ function OpenButton({ app, className }: { app: PackageAppView; className?: strin
   );
 }
 
-function FeaturedCard({ app, busy, act }: { app: PackageAppView; busy: boolean; act: ActFn }) {
+function LogsDialog({ app }: { app: PackageAppView }) {
+  const [open, setOpen] = useState(false);
+  const [log, setLog] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const json = await call({ kind: "app.logs", id: app.id });
+      if (json.ok) setLog(json.log ?? "");
+      else {
+        setLog("");
+        toast.error(json.error ?? "로그를 가져오지 못했습니다.");
+      }
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) void load();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs">
+          <ScrollText className="size-3.5" /> 로그
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ScrollText className="size-4" /> {app.name} 로그
+          </DialogTitle>
+          <DialogDescription>최근 300줄의 컨테이너 로그입니다.</DialogDescription>
+        </DialogHeader>
+        <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-100">
+          {loading ? "불러오는 중…" : log || "(로그가 없습니다.)"}
+        </pre>
+        <DialogFooter>
+          <Button size="sm" variant="outline" className="gap-1" disabled={loading} onClick={() => void load()}>
+            <RefreshCw className={cn("size-3.5", loading && "animate-spin")} /> 새로고침
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ComposeDialog({ app, refresh }: { app: PackageAppView; refresh: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [yaml, setYaml] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const json = await call({ kind: "app.composeGet", id: app.id });
+      if (json.ok) setYaml(json.yaml ?? "");
+      else toast.error(json.error ?? "compose 파일을 가져오지 못했습니다.");
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const save = async () => {
+    setSaving(true);
+    const toastId = toast.loading("적용 중… docker compose up -d");
+    try {
+      const json = await call({ kind: "app.composeSave", id: app.id, yaml });
+      if (json.ok) {
+        toast.success(`${app.name} compose 적용됨`, { id: toastId });
+        refresh();
+        setOpen(false);
+      } else {
+        toast.error(json.error ?? "적용에 실패했습니다.", { id: toastId });
+      }
+    } catch (err) {
+      toast.error((err as Error).message, { id: toastId });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) void load();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs">
+          <FileCode className="size-3.5" /> Compose 편집
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileEdit className="size-4" /> {app.name} Compose 편집
+          </DialogTitle>
+          <DialogDescription>docker-compose.yml 을 수정한 뒤 적용하세요.</DialogDescription>
+        </DialogHeader>
+        <Textarea
+          value={loading ? "불러오는 중…" : yaml}
+          onChange={(e) => setYaml(e.target.value)}
+          rows={18}
+          disabled={loading || saving}
+          spellCheck={false}
+          className="w-full font-mono text-[11px] leading-relaxed"
+        />
+        <DialogFooter className="gap-2">
+          <DialogClose asChild>
+            <Button size="sm" variant="outline" disabled={saving}>
+              취소
+            </Button>
+          </DialogClose>
+          <Button size="sm" className="gap-1" disabled={loading || saving} onClick={() => void save()}>
+            <Save className="size-3.5" /> 저장 & 적용
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FeaturedCard({
+  app,
+  busy,
+  act,
+  refresh,
+}: {
+  app: PackageAppView;
+  busy: boolean;
+  act: ActFn;
+  refresh: () => void;
+}) {
   const { Icon, color } = styleFor(app.category);
   return (
     <div className="rounded-xl bg-gradient-to-br from-primary/40 via-primary/10 to-transparent p-px shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -281,7 +457,7 @@ function FeaturedCard({ app, busy, act }: { app: PackageAppView; busy: boolean; 
                 <span className={cn("size-1.5 rounded-full", app.running ? "bg-emerald-500" : "bg-muted-foreground")} />
                 {app.running ? "실행 중" : "중지됨"}
               </Badge>
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 {app.running && <OpenButton app={app} />}
                 {app.running ? (
                   <Button
@@ -304,6 +480,8 @@ function FeaturedCard({ app, busy, act }: { app: PackageAppView; busy: boolean; 
                     <Play className="size-3.5" /> 시작
                   </Button>
                 )}
+                <LogsDialog app={app} />
+                <ComposeDialog app={app} refresh={refresh} />
                 <Button
                   size="icon"
                   variant="ghost"
@@ -331,7 +509,17 @@ function FeaturedCard({ app, busy, act }: { app: PackageAppView; busy: boolean; 
   );
 }
 
-function AppCard({ app, busy, act }: { app: PackageAppView; busy: boolean; act: ActFn }) {
+function AppCard({
+  app,
+  busy,
+  act,
+  refresh,
+}: {
+  app: PackageAppView;
+  busy: boolean;
+  act: ActFn;
+  refresh: () => void;
+}) {
   const { Icon, color } = styleFor(app.category);
   return (
     <Card className="flex flex-col gap-3 p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">

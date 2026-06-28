@@ -39,6 +39,9 @@ interface WindowStore {
   taskbarClick: (id: string) => void;
   setPalette: (open: boolean) => void;
   togglePalette: () => void;
+  tile: (viewport: { width: number; height: number }) => void;
+  cascade: (viewport: { width: number; height: number }) => void;
+  minimizeAll: () => void;
 }
 
 const TOPBAR_H = 30;
@@ -165,4 +168,68 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
 
   setPalette: (open) => set({ paletteOpen: open }),
   togglePalette: () => set((s) => ({ paletteOpen: !s.paletteOpen })),
+
+  tile: (viewport) => {
+    const gap = 8;
+    const top = TOPBAR_H + gap;
+    set((s) => {
+      const visible = s.windows.filter((w) => !w.minimized);
+      const n = visible.length;
+      if (!n) return {};
+      const cols = Math.ceil(Math.sqrt(n));
+      const rows = Math.ceil(n / cols);
+      const cellW = (viewport.width - gap * (cols + 1)) / cols;
+      const cellH = (viewport.height - top - DOCK_RESERVE - gap * (rows + 1) + gap) / rows;
+      let z = s.topZ;
+      const placed = new Map<string, Partial<WindowState>>();
+      visible.forEach((w, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        placed.set(w.id, {
+          x: Math.round(gap + col * (cellW + gap)),
+          y: Math.round(top + row * (cellH + gap)),
+          width: Math.round(cellW),
+          height: Math.round(cellH),
+          maximized: false,
+          restore: undefined,
+          zIndex: ++z,
+        });
+      });
+      return {
+        topZ: z,
+        windows: s.windows.map((w) => (placed.has(w.id) ? { ...w, ...placed.get(w.id) } : w)),
+      };
+    });
+  },
+
+  cascade: (viewport) => {
+    const step = 32;
+    const top = TOPBAR_H + 12;
+    set((s) => {
+      const visible = s.windows.filter((w) => !w.minimized);
+      if (!visible.length) return {};
+      const width = Math.min(900, Math.round(viewport.width * 0.62));
+      const height = Math.min(620, Math.round((viewport.height - top - DOCK_RESERVE) * 0.82));
+      let z = s.topZ;
+      const placed = new Map<string, Partial<WindowState>>();
+      visible.forEach((w, i) => {
+        placed.set(w.id, {
+          x: 24 + i * step,
+          y: top + i * step,
+          width,
+          height,
+          maximized: false,
+          restore: undefined,
+          zIndex: ++z,
+        });
+      });
+      return {
+        topZ: z,
+        windows: s.windows.map((w) => (placed.has(w.id) ? { ...w, ...placed.get(w.id) } : w)),
+      };
+    });
+  },
+
+  minimizeAll: () =>
+    set((s) => ({ windows: s.windows.map((w) => ({ ...w, minimized: true })), focusedId: null })),
 }));

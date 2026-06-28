@@ -10,9 +10,49 @@ import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { usePoll } from "@/lib/hooks/use-poll";
 import { formatBitsPerSec, formatBytes, formatUptime } from "@/lib/format";
-import type { ProcessInfo, SystemOverview } from "@/lib/types";
+import type { MemoryStat, ProcessInfo, SystemOverview } from "@/lib/types";
 
 const MAX_HISTORY = 40;
+
+// Guard against NaN / Infinity reaching the byte formatter.
+function fmt(bytes: number): string {
+  return formatBytes(Number.isFinite(bytes) ? bytes : 0);
+}
+
+// DSM-style memory breakdown: 앱 사용 / 버퍼·캐시 / 여유.
+const MEM_APP_COLOR = "var(--chart-2)";
+const MEM_CACHE_COLOR = "#f59e0b"; // amber — reclaimable
+
+function MemoryBreakdown({ memory }: { memory: MemoryStat }) {
+  const total = memory.totalBytes > 0 ? memory.totalBytes : 1;
+  const app = memory.appUsedBytes ?? memory.usedBytes;
+  const cache = memory.buffCacheBytes ?? 0;
+  const free = memory.freeBytes ?? Math.max(0, total - app - cache);
+  const pct = (n: number) => `${Math.max(0, Math.min(100, (n / total) * 100))}%`;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
+        <div className="h-full" style={{ width: pct(app), backgroundColor: MEM_APP_COLOR }} />
+        <div className="h-full" style={{ width: pct(cache), backgroundColor: MEM_CACHE_COLOR }} />
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <span className="size-2 rounded-full" style={{ backgroundColor: MEM_APP_COLOR }} />
+          앱 사용 {fmt(app)}
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="size-2 rounded-full" style={{ backgroundColor: MEM_CACHE_COLOR }} />
+          버퍼·캐시 {fmt(cache)}
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="size-2 rounded-full bg-muted-foreground/40" />
+          여유 {fmt(free)}
+        </span>
+      </div>
+      <p className="text-[10px] text-muted-foreground">버퍼·캐시는 필요 시 회수되는 메모리입니다.</p>
+    </div>
+  );
+}
 
 function useHistory(value: number | undefined): number[] {
   const [history, setHistory] = useState<number[]>([]);
@@ -62,11 +102,11 @@ export function ResourceMonitor() {
               <MemoryStick className="size-4 text-muted-foreground" /> Memory
             </div>
             <p className="text-xs text-muted-foreground">
-              {overview ? formatBytes(overview.memory.usedBytes) : "—"} /{" "}
-              {overview ? formatBytes(overview.memory.totalBytes) : "—"}
+              {overview ? fmt(overview.memory.usedBytes) : "—"} /{" "}
+              {overview ? fmt(overview.memory.totalBytes) : "—"}
             </p>
             <p className="text-xs text-muted-foreground">
-              Swap {overview ? formatBytes(overview.swap.usedBytes) : "—"}
+              Swap {overview ? fmt(overview.swap.usedBytes) : "—"}
             </p>
           </div>
         </Card>
@@ -119,6 +159,11 @@ export function ResourceMonitor() {
             <span className="text-xs tabular-nums text-muted-foreground">{memPercent.toFixed(0)}%</span>
           </div>
           <Sparkline data={memHistory} max={100} height={56} color="var(--chart-2)" />
+          {overview && (
+            <div className="mt-3 border-t pt-3">
+              <MemoryBreakdown memory={overview.memory} />
+            </div>
+          )}
         </Card>
       </div>
 

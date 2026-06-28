@@ -200,17 +200,20 @@
 }
 
 @keyframes win-open {
+  /* Use the independent `scale` property (NOT transform) so this composes with
+     the window's transform-based positioning instead of overriding it. */
   from {
     opacity: 0;
-    transform: scale(0.97) translateY(6px);
+    scale: 0.96;
   }
   to {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    scale: 1;
   }
 }
 .animate-win-open {
-  animation: win-open 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: win-open 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center;
 }
 
 @keyframes dock-pop {

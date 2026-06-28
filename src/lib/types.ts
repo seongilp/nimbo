@@ -25,6 +25,9 @@ export interface MemoryStat {
   totalBytes: number;
   usedBytes: number;
   freeBytes: number;
+  // Linux-only breakdown (DSM-style). Optional so mock/non-Linux still compile.
+  buffCacheBytes?: number; // Buffers + Cached + SReclaimable (reclaimable)
+  appUsedBytes?: number; // total - free - buffCache (app/anon usage)
 }
 
 export interface NetworkStat {

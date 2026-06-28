@@ -11,6 +11,8 @@ import { SetupWizard } from "./setup-wizard";
 import { Window } from "./window";
 import { useAccent } from "@/lib/hooks/use-accent";
 import { useWindowStore } from "@/lib/store/windows";
+import { useWallpaperStore } from "@/lib/store/wallpaper";
+import { wallpaperById } from "@/lib/wallpapers";
 import { cn } from "@/lib/utils";
 import type { SetupConfig } from "@/lib/types";
 
@@ -20,6 +22,11 @@ export function Desktop() {
   const togglePalette = useWindowStore((s) => s.togglePalette);
   const hasVisible = windows.some((w) => !w.minimized);
   useAccent(); // apply persisted accent color on load
+
+  const wallpaperId = useWallpaperStore((s) => s.id);
+  const loadWallpaper = useWallpaperStore((s) => s.load);
+  useEffect(() => loadWallpaper(), [loadWallpaper]);
+  const wallpaperBg = wallpaperById(wallpaperId).bg;
 
   // First-run setup gate.
   const [setup, setSetup] = useState<SetupConfig | null>(null);
@@ -72,7 +79,10 @@ export function Desktop() {
   }
 
   return (
-    <div className="desktop-wallpaper relative h-dvh w-full overflow-hidden">
+    <div
+      className="desktop-wallpaper relative h-dvh w-full overflow-hidden"
+      style={wallpaperBg ? { background: wallpaperBg } : undefined}
+    >
       <MenuBar />
 
       {/* Welcome / empty state */}

@@ -8,7 +8,40 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePoll } from "@/lib/hooks/use-poll";
 import { formatBytes } from "@/lib/format";
-import type { DiskInfo } from "@/lib/types";
+import type { DiskInfo, PartitionInfo } from "@/lib/types";
+
+// Guard against NaN / Infinity reaching the formatter.
+function fmt(bytes: number): string {
+  return formatBytes(Number.isFinite(bytes) ? bytes : 0);
+}
+
+// A "real" filesystem is mounted at a non-empty path and is not swap.
+function isRealMount(mp: PartitionInfo["mountpoint"]): mp is string {
+  return typeof mp === "string" && mp.trim() !== "" && mp !== "[SWAP]";
+}
+
+// Summarize ONLY real mounted filesystems, deduped by mountpoint. This skips
+// unmounted / ZFS-member partitions (mountpoint null) and never sums raw disk
+// sizes, so the figure stays in a sane GB/TB range (never PB).
+function summarizeMounted(disks: DiskInfo[] | null | undefined) {
+  const byMount = new Map<string, { total: number; used: number }>();
+  for (const disk of disks ?? []) {
+    for (const part of disk.partitions) {
+      if (!isRealMount(part.mountpoint) || byMount.has(part.mountpoint)) continue;
+      byMount.set(part.mountpoint, {
+        total: Number.isFinite(part.totalBytes) ? part.totalBytes : 0,
+        used: Number.isFinite(part.usedBytes) ? part.usedBytes : 0,
+      });
+    }
+  }
+  let total = 0;
+  let used = 0;
+  for (const v of byMount.values()) {
+    total += v.total;
+    used += v.used;
+  }
+  return { total, used };
+}
 
 const SMART_BADGE = {
   passed: { label: "Healthy", className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400", Icon: CheckCircle2 },
@@ -100,20 +133,20 @@ function DiskCard({ disk }: { disk: DiskInfo }) {
 export function StorageManager() {
   const { data: disks, loading } = usePoll<DiskInfo[]>("/api/storage", 5000);
 
-  const totalBytes = disks?.reduce((sum, d) => sum + d.sizeBytes, 0) ?? 0;
-  const usedBytes =
-    disks?.reduce((sum, d) => sum + d.partitions.reduce((p, x) => p + x.usedBytes, 0), 0) ?? 0;
+  // Summary counts only real mounted filesystems (e.g. /, /home, /boot) — not
+  // raw disk sizes and not ZFS member partitions — so it never shows petabytes.
+  const { total: totalBytes, used: usedBytes } = summarizeMounted(disks);
 
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="grid grid-cols-3 gap-3 p-4">
         <Card className="p-4">
           <p className="text-xs text-muted-foreground">Total capacity</p>
-          <p className="text-xl font-semibold">{formatBytes(totalBytes)}</p>
+          <p className="text-xl font-semibold">{fmt(totalBytes)}</p>
         </Card>
         <Card className="p-4">
           <p className="text-xs text-muted-foreground">Used</p>
-          <p className="text-xl font-semibold">{formatBytes(usedBytes)}</p>
+          <p className="text-xl font-semibold">{fmt(usedBytes)}</p>
         </Card>
         <Card className="p-4">
           <p className="text-xs text-muted-foreground">Drives</p>

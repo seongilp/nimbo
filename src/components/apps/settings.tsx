@@ -41,6 +41,8 @@ import { Switch } from "@/components/ui/switch";
 import { usePoll } from "@/lib/hooks/use-poll";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { ACCENTS, useAccent } from "@/lib/hooks/use-accent";
+import { useWallpaperStore } from "@/lib/store/wallpaper";
+import { WALLPAPERS } from "@/lib/wallpapers";
 import { formatBytes, formatUptime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { HostConfig, NetInterfaceConfig, ShareInfo, SshOverview, SystemOverview } from "@/lib/types";
@@ -816,6 +818,8 @@ export function Settings() {
   const { data: shares } = usePoll<ShareInfo[]>("/api/shares", 0);
   const { theme, toggle } = useTheme();
   const { accent, setAccent } = useAccent();
+  const wallpaperId = useWallpaperStore((s) => s.id);
+  const setWallpaper = useWallpaperStore((s) => s.setWallpaper);
 
   const [shareState, setShareState] = useState<Record<string, boolean>>({});
   const [confirm, setConfirm] = useState<null | "restart" | "shutdown">(null);
@@ -934,6 +938,33 @@ export function Settings() {
                       style={{ backgroundColor: a.swatch }}
                     >
                       {accent === a.id && <Check className="size-4 text-white" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-sm font-medium">배경화면</p>
+                <div className="grid grid-cols-4 gap-2.5 sm:grid-cols-4">
+                  {WALLPAPERS.map((w) => (
+                    <button
+                      key={w.id}
+                      onClick={() => setWallpaper(w.id)}
+                      className={cn(
+                        "group relative aspect-video overflow-hidden rounded-lg ring-2 transition-transform hover:scale-[1.03]",
+                        wallpaperId === w.id ? "ring-primary" : "ring-border"
+                      )}
+                      style={{ background: w.swatch }}
+                      title={w.label}
+                    >
+                      {wallpaperId === w.id && (
+                        <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                          <Check className="size-3" />
+                        </span>
+                      )}
+                      <span className="absolute inset-x-0 bottom-0 bg-black/40 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                        {w.label}
+                      </span>
                     </button>
                   ))}
                 </div>

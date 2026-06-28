@@ -28,6 +28,8 @@ import type {
   BackupOverview,
   ContainerInfo,
   DiskInfo,
+  MemoryStat,
+  PartitionInfo,
   SecurityOverview,
   SystemAdminOverview,
   SystemOverview,
@@ -35,6 +37,74 @@ import type {
 } from "@/lib/types";
 
 const MAX_HISTORY = 40;
+
+// Guard against NaN / Infinity reaching the byte formatter.
+function fmt(bytes: number): string {
+  return formatBytes(Number.isFinite(bytes) ? bytes : 0);
+}
+
+// A "real" filesystem is mounted at a non-empty path and is not swap.
+function isRealMount(mp: PartitionInfo["mountpoint"]): mp is string {
+  return typeof mp === "string" && mp.trim() !== "" && mp !== "[SWAP]";
+}
+
+// Summarize ONLY real mounted filesystems, deduped by mountpoint. Skips
+// unmounted / ZFS-member partitions and never sums raw disk sizes, so the
+// figure stays in a sane GB/TB range (never PB).
+function summarizeMounted(disks: DiskInfo[] | null | undefined) {
+  const byMount = new Map<string, { total: number; used: number }>();
+  for (const disk of disks ?? []) {
+    for (const part of disk.partitions) {
+      if (!isRealMount(part.mountpoint) || byMount.has(part.mountpoint)) continue;
+      byMount.set(part.mountpoint, {
+        total: Number.isFinite(part.totalBytes) ? part.totalBytes : 0,
+        used: Number.isFinite(part.usedBytes) ? part.usedBytes : 0,
+      });
+    }
+  }
+  let total = 0;
+  let used = 0;
+  for (const v of byMount.values()) {
+    total += v.total;
+    used += v.used;
+  }
+  return { total, used };
+}
+
+// DSM-style memory breakdown: 앱 사용 / 버퍼·캐시 / 여유.
+const MEM_APP_COLOR = "var(--chart-2)";
+const MEM_CACHE_COLOR = "#f59e0b"; // amber — reclaimable
+
+function MemoryBreakdown({ memory }: { memory: MemoryStat }) {
+  const total = memory.totalBytes > 0 ? memory.totalBytes : 1;
+  const app = memory.appUsedBytes ?? memory.usedBytes;
+  const cache = memory.buffCacheBytes ?? 0;
+  const free = memory.freeBytes ?? Math.max(0, total - app - cache);
+  const pct = (n: number) => `${Math.max(0, Math.min(100, (n / total) * 100))}%`;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
+        <div className="h-full" style={{ width: pct(app), backgroundColor: MEM_APP_COLOR }} />
+        <div className="h-full" style={{ width: pct(cache), backgroundColor: MEM_CACHE_COLOR }} />
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <span className="size-2 rounded-full" style={{ backgroundColor: MEM_APP_COLOR }} />
+          앱 사용 {fmt(app)}
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="size-2 rounded-full" style={{ backgroundColor: MEM_CACHE_COLOR }} />
+          버퍼·캐시 {fmt(cache)}
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="size-2 rounded-full bg-muted-foreground/40" />
+          여유 {fmt(free)}
+        </span>
+      </div>
+      <p className="text-[10px] text-muted-foreground">버퍼·캐시는 필요 시 회수되는 메모리입니다.</p>
+    </div>
+  );
+}
 
 function useHistory(value: number | undefined): number[] {
   const [history, setHistory] = useState<number[]>([]);
@@ -152,17 +222,9 @@ export function Dashboard() {
     : 0;
   const netHistory = useHistory(overview?.network.rxBytesPerSec);
 
-  // storage aggregation
-  const storage = (disks ?? []).reduce(
-    (acc, d) => {
-      for (const p of d.partitions) {
-        acc.total += p.totalBytes;
-        acc.used += p.usedBytes;
-      }
-      return acc;
-    },
-    { total: 0, used: 0 },
-  );
+  // storage aggregation — only real mounted filesystems (not raw disk sizes,
+  // not ZFS member partitions), so it never shows petabytes.
+  const storage = summarizeMounted(disks);
   const storagePercent = storage.total > 0 ? (storage.used / storage.total) * 100 : 0;
   const worstSmart =
     (disks ?? []).reduce<DiskInfo["smartStatus"]>((worst, d) => {
@@ -262,15 +324,20 @@ export function Dashboard() {
               <RadialGauge value={memPercent} size={84} stroke={8} color="var(--chart-2)" />
               <div className="min-w-0 text-xs text-muted-foreground">
                 <p>
-                  {overview ? formatBytes(overview.memory.usedBytes) : "—"} /{" "}
-                  {overview ? formatBytes(overview.memory.totalBytes) : "—"}
+                  {overview ? fmt(overview.memory.usedBytes) : "—"} /{" "}
+                  {overview ? fmt(overview.memory.totalBytes) : "—"}
                 </p>
                 <p>
-                  Swap {overview ? formatBytes(overview.swap.usedBytes) : "—"} /{" "}
-                  {overview ? formatBytes(overview.swap.totalBytes) : "—"}
+                  Swap {overview ? fmt(overview.swap.usedBytes) : "—"} /{" "}
+                  {overview ? fmt(overview.swap.totalBytes) : "—"}
                 </p>
               </div>
             </div>
+            {overview && (
+              <div className="mt-3 border-t pt-2">
+                <MemoryBreakdown memory={overview.memory} />
+              </div>
+            )}
           </Card>
 
           {/* 4. 네트워크 */}
@@ -301,10 +368,10 @@ export function Dashboard() {
             <div className="space-y-2">
               <div className="flex items-baseline justify-between text-xs">
                 <span className="text-sm font-semibold text-foreground">
-                  {disks ? formatBytes(storage.used) : "—"}
+                  {disks ? fmt(storage.used) : "—"}
                 </span>
                 <span className="text-muted-foreground">
-                  / {disks ? formatBytes(storage.total) : "—"}
+                  / {disks ? fmt(storage.total) : "—"}
                 </span>
               </div>
               <ProgressBar percent={storagePercent} color="var(--chart-4)" />

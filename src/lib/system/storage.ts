@@ -17,6 +17,15 @@ interface LsblkNode {
   children?: LsblkNode[];
 }
 
+// lsblk -J -b returns SIZE as a JSON number but FSSIZE/FSUSED/FSAVAIL as
+// quoted strings on some util-linux versions (e.g. RHEL 9). Coerce everything
+// to a real number so downstream arithmetic and Number.isFinite() guards work.
+function numOr(v: unknown, fallback: number): number {
+  if (v === null || v === undefined || v === "") return fallback;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function classify(node: LsblkNode): DiskInfo["type"] {
   if (node.tran === "nvme" || node.name.startsWith("nvme")) return "nvme";
   if (node.rota === false) return "ssd";
@@ -28,9 +37,9 @@ function toPartitions(node: LsblkNode): PartitionInfo[] {
   const parts: PartitionInfo[] = [];
   const walk = (n: LsblkNode) => {
     if (n.type === "part" || n.type === "lvm" || n.type === "crypt") {
-      const total = n.fssize ?? n.size ?? 0;
-      const used = n.fsused ?? 0;
-      const avail = n.fsavail ?? Math.max(0, total - used);
+      const total = numOr(n.fssize, numOr(n.size, 0));
+      const used = numOr(n.fsused, 0);
+      const avail = numOr(n.fsavail, Math.max(0, total - used));
       parts.push({
         device: "/dev/" + n.name,
         mountpoint: n.mountpoint ?? null,
@@ -82,7 +91,7 @@ export async function getDisks(): Promise<DiskInfo[]> {
     disks.push({
       device,
       model: (node.model ?? "Unknown").trim() || "Unknown",
-      sizeBytes: node.size ?? 0,
+      sizeBytes: numOr(node.size, 0),
       type: classify(node),
       temperatureC: smart.tempC,
       smartStatus: smart.status,

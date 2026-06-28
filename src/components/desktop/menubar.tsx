@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Moon, Sun, Cpu, Thermometer, Cloud, Search, LayoutGrid, Copy, Minus, X, LogOut } from "lucide-react";
+import { Moon, Sun, Cpu, Thermometer, Cloud, Search, LayoutGrid, Copy, Minus, X, LogOut, Star } from "lucide-react";
 
-import { APP_MAP } from "./app-registry";
+import { APP_MAP, APPS } from "./app-registry";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +15,8 @@ import {
 import { usePoll } from "@/lib/hooks/use-poll";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { useWindowStore } from "@/lib/store/windows";
+import { useFavoritesStore } from "@/lib/store/favorites";
+import { cn } from "@/lib/utils";
 import type { SystemOverview } from "@/lib/types";
 
 function Clock() {
@@ -36,8 +38,17 @@ function Clock() {
 
 export function MenuBar() {
   const { theme, toggle } = useTheme();
-  const { focusedId, windows, togglePalette, tile, cascade, minimizeAll, closeAll } = useWindowStore();
+  const { focusedId, windows, open, taskbarClick, togglePalette, tile, cascade, minimizeAll, closeAll } = useWindowStore();
+  const favoriteIds = useFavoritesStore((s) => s.ids);
+  const toggleFavorite = useFavoritesStore((s) => s.toggle);
   const { data: overview } = usePoll<SystemOverview>("/api/overview", 3000);
+
+  function activate(appId: string) {
+    const existing = windows.find((w) => w.appId === appId);
+    const app = APP_MAP[appId];
+    if (existing) taskbarClick(existing.id);
+    else open(appId, { title: app.name, width: app.width, height: app.height });
+  }
   const [user, setUser] = useState<string | null>(null);
   useEffect(() => {
     fetch("/api/auth/me").then((r) => r.json()).then((j) => j.ok && setUser(j.user)).catch(() => {});
@@ -57,22 +68,56 @@ export function MenuBar() {
           <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[13px] font-semibold outline-none hover:bg-foreground/5">
             <Cloud className="size-4 fill-primary/20 text-primary" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuContent align="start" className="max-h-[82vh] w-64 overflow-y-auto">
             <DropdownMenuLabel>
               <div className="flex flex-col">
                 <span>{overview?.hostname ?? "nas-server"}</span>
-                <span className="text-xs font-normal text-muted-foreground">{overview?.distro ?? "Linux"}</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {overview?.distro ?? "Linux"}
+                  {user ? ` · ${user}` : ""}
+                </span>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-xs text-muted-foreground" disabled>
-              Kernel {overview?.kernel ?? "—"}
-            </DropdownMenuItem>
-            {user && (
-              <DropdownMenuItem className="text-xs text-muted-foreground" disabled>
-                로그인: {user}
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuLabel className="py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              앱
+            </DropdownMenuLabel>
+            {APPS.map((app) => {
+              const fav = favoriteIds.includes(app.id);
+              return (
+                <div key={app.id} className="flex items-center gap-0.5 pr-1">
+                  <DropdownMenuItem className="flex-1" onClick={() => activate(app.id)}>
+                    <span
+                      className={cn(
+                        "flex size-5 shrink-0 items-center justify-center rounded-[26%] text-white ring-1 ring-white/10",
+                        app.color
+                      )}
+                    >
+                      <app.icon className="size-3" />
+                    </span>
+                    <span className="truncate">{app.name}</span>
+                  </DropdownMenuItem>
+                  <button
+                    aria-label={fav ? `${app.name} 즐겨찾기 해제` : `${app.name} 즐겨찾기`}
+                    title={fav ? "Dock에서 제거" : "Dock에 추가"}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      toggleFavorite(app.id);
+                    }}
+                    className="flex size-6 shrink-0 items-center justify-center rounded-md hover:bg-foreground/10"
+                  >
+                    <Star
+                      className={cn(
+                        "size-3.5 transition-colors",
+                        fav ? "fill-amber-400 text-amber-400" : "text-muted-foreground/50"
+                      )}
+                    />
+                  </button>
+                </div>
+              );
+            })}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={logout}>
               <LogOut className="size-4" /> 로그아웃

@@ -12,6 +12,7 @@ import { Window } from "./window";
 import { useAccent } from "@/lib/hooks/use-accent";
 import { useWindowStore } from "@/lib/store/windows";
 import { useWallpaperStore } from "@/lib/store/wallpaper";
+import { useFavoritesStore } from "@/lib/store/favorites";
 import { wallpaperById } from "@/lib/wallpapers";
 import { cn } from "@/lib/utils";
 import type { SetupConfig } from "@/lib/types";
@@ -26,6 +27,9 @@ export function Desktop() {
   const wallpaperId = useWallpaperStore((s) => s.id);
   const loadWallpaper = useWallpaperStore((s) => s.load);
   useEffect(() => loadWallpaper(), [loadWallpaper]);
+
+  const loadFavorites = useFavoritesStore((s) => s.load);
+  useEffect(() => loadFavorites(), [loadFavorites]);
   const wallpaperBg = wallpaperById(wallpaperId).bg;
 
   // First-run setup gate.

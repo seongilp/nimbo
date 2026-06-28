@@ -61,7 +61,12 @@ async function smartStatus(device: string): Promise<{ status: DiskInfo["smartSta
   if (code !== 0 || !stdout) return { status: "unknown", tempC: null };
   const healthy = /SMART overall-health self-assessment test result:\s+PASSED/i.test(stdout) ||
     /SMART Health Status:\s+OK/i.test(stdout);
-  const failed = /FAILED|FAILING_NOW/i.test(stdout);
+  // Anchor failure to the actual health-result line or a real FAILING_NOW
+  // attribute value. NOT a bare /FAILED/ — the smartctl -A attribute table
+  // always has a "WHEN_FAILED" column header, which would match every disk.
+  const failed = /self-assessment test result:\s+FAILED/i.test(stdout) ||
+    /SMART Health Status:\s+(FAILED|FAIL)/i.test(stdout) ||
+    /\bFAILING_NOW\b/i.test(stdout);
   const tempMatch = stdout.match(/Temperature.*?(\d{1,3})\s*(?:Celsius|\(|$)/i) ||
     stdout.match(/Temperature_Celsius.*?(\d{1,3})\s*$/im);
   const tempC = tempMatch ? Number(tempMatch[1]) : null;

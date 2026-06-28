@@ -71,6 +71,24 @@ function summarizeMounted(disks: DiskInfo[] | null | undefined) {
   return { total, used };
 }
 
+// Total usable storage = OS filesystems (from lsblk) + ZFS pools (from zpool).
+// ZFS pools live on separate disks from the OS LVM, so there is no double-count.
+// zpool SIZE/ALLOC already account for redundancy (mirror/raidz), so they are
+// the right "usable" figures for a summary.
+function summarizeStorage(
+  disks: DiskInfo[] | null | undefined,
+  zfs: ZfsOverview | null | undefined,
+) {
+  const os = summarizeMounted(disks);
+  let total = os.total;
+  let used = os.used;
+  for (const pool of zfs?.pools ?? []) {
+    if (Number.isFinite(pool.sizeBytes)) total += pool.sizeBytes;
+    if (Number.isFinite(pool.allocBytes)) used += pool.allocBytes;
+  }
+  return { total, used };
+}
+
 // DSM-style memory breakdown: 앱 사용 / 버퍼·캐시 / 여유.
 const MEM_APP_COLOR = "var(--chart-2)";
 const MEM_CACHE_COLOR = "#f59e0b"; // amber — reclaimable
@@ -222,9 +240,10 @@ export function Dashboard() {
     : 0;
   const netHistory = useHistory(overview?.network.rxBytesPerSec);
 
-  // storage aggregation — only real mounted filesystems (not raw disk sizes,
-  // not ZFS member partitions), so it never shows petabytes.
-  const storage = summarizeMounted(disks);
+  // storage aggregation — real mounted filesystems (OS disks) PLUS ZFS pools.
+  // lsblk can't see ZFS mountpoints, so the pools (the bulk of a NAS) must be
+  // added from the zpool data; otherwise the widget only shows the OS disk.
+  const storage = summarizeStorage(disks, zfs);
   const storagePercent = storage.total > 0 ? (storage.used / storage.total) * 100 : 0;
   const worstSmart =
     (disks ?? []).reduce<DiskInfo["smartStatus"]>((worst, d) => {

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Check, Copy, Terminal } from "lucide-react";
 
+import { cn } from "@/lib/utils";
+
 const COMMAND = "git clone https://github.com/seongilp/nimbo && cd nimbo && sudo ./deploy/install.sh";
 
 export function InstallBlock() {
@@ -35,15 +37,30 @@ export function InstallBlock() {
       type="button"
       onClick={copy}
       title="클릭하면 복사됩니다"
-      className="group block w-full overflow-hidden rounded-2xl border border-white/10 bg-background/80 text-left shadow-soft transition-colors hover:border-primary/40"
+      className={cn(
+        "group block w-full overflow-hidden rounded-2xl border text-left shadow-soft transition-colors",
+        copied
+          ? "border-emerald-500/60 bg-emerald-500/10"
+          : "border-white/10 bg-background/80 hover:border-primary/40"
+      )}
     >
-      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2.5">
+      <div
+        className={cn(
+          "flex items-center gap-2 border-b px-4 py-2.5 transition-colors",
+          copied ? "border-emerald-500/30" : "border-white/10"
+        )}
+      >
         <Terminal className="size-3.5 text-muted-foreground" />
         <span className="text-xs text-muted-foreground">install</span>
-        <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground transition-colors group-hover:text-foreground">
+        <span
+          className={cn(
+            "ml-auto flex items-center gap-1 text-xs font-medium transition-colors",
+            copied ? "text-emerald-500" : "text-muted-foreground group-hover:text-foreground"
+          )}
+        >
           {copied ? (
             <>
-              <Check className="size-3.5 text-emerald-500" /> 복사됨
+              <Check className="size-3.5" /> 복사됨!
             </>
           ) : (
             <>

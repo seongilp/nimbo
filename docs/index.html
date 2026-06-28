@@ -57,8 +57,10 @@
   .install .label{font-size:13px;color:var(--muted);margin-bottom:8px;text-align:left}
   .code{display:flex;align-items:center;gap:12px;background:#0d1424;border:1px solid var(--border);
     border-radius:12px;padding:14px 16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-    font-size:14px;overflow-x:auto;cursor:pointer;transition:border-color .15s}
+    font-size:14px;overflow-x:auto;cursor:pointer;transition:border-color .15s,background .15s}
   .code:hover{border-color:var(--accent,#3b82f6)}
+  .code.copied{border-color:#22c55e;background:#0e1f18}
+  .code.copied .copy{color:#22c55e;border-color:#22c55e;background:#0e1f18}
   .code code{color:#cbd5e1;white-space:nowrap}
   .code .prompt{color:#22c55e;user-select:none}
   .copy{margin-left:auto;flex:none;border:1px solid var(--border);background:#0a0f1c;color:var(--muted);
@@ -198,9 +200,12 @@
     var btn = box.querySelector('.copy');
     if(!code) return;
     var done = function(ok){
-      if(!btn) return;
-      btn.textContent = ok ? '복사됨!' : '복사 실패';
-      setTimeout(function(){ btn.textContent = '복사'; }, 1200);
+      if(ok) box.classList.add('copied');
+      if(btn) btn.textContent = ok ? '✓ 복사됨!' : '복사 실패';
+      setTimeout(function(){
+        box.classList.remove('copied');
+        if(btn) btn.textContent = '복사';
+      }, 1500);
     };
     var text = code.textContent;
     if(navigator.clipboard && navigator.clipboard.writeText){

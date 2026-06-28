@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nimbo — Your own cloud, self-hosted</title>
+<meta name="description" content="Manage a Linux server like a NAS — files, ZFS storage, backups, containers & more, from one beautiful console." />
+<link rel="icon" href="logo.svg" />
+<meta property="og:title" content="Nimbo — Your own cloud, self-hosted" />
+<meta property="og:description" content="A Synology DSM-style web console to manage a Linux server as a NAS." />
+<meta property="og:image" content="screenshots/desktop.png" />
+<style>
+  :root{
+    --bg:#0a0f1c; --bg2:#070b14; --card:#111827cc; --border:#1f2937;
+    --fg:#e5e7eb; --muted:#94a3b8; --primary:#3b82f6; --primary2:#0ea5e9;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:
+      radial-gradient(120% 70% at 50% -10%, rgba(59,130,246,.18), transparent 55%),
+      radial-gradient(90% 60% at 90% 110%, rgba(124,58,237,.12), transparent 55%),
+      linear-gradient(180deg,var(--bg),var(--bg2));
+    color:var(--fg); line-height:1.6; -webkit-font-smoothing:antialiased; min-height:100vh;
+  }
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  /* nav */
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);
+    background:rgba(10,15,28,.6);border-bottom:1px solid var(--border)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px}
+  .brand img{width:30px;height:30px}
+  .nav-links{display:flex;align-items:center;gap:26px;font-size:14px;color:var(--muted)}
+  .nav-links a:hover{color:var(--fg)}
+  .btn{display:inline-flex;align-items:center;gap:8px;border-radius:10px;padding:9px 16px;font-size:14px;font-weight:600;transition:.15s}
+  .btn-primary{background:linear-gradient(135deg,var(--primary),#2563eb);color:#fff}
+  .btn-primary:hover{filter:brightness(1.08)}
+  .btn-ghost{border:1px solid var(--border);color:var(--fg)}
+  .btn-ghost:hover{background:#ffffff0d}
+  @media(max-width:640px){.nav-links a:not(.btn){display:none}}
+  /* hero */
+  .hero{text-align:center;padding:90px 0 40px}
+  .logo-tile{width:84px;height:84px;border-radius:24px;margin:0 auto 28px;display:block;
+    box-shadow:0 12px 40px -8px rgba(59,130,246,.5)}
+  .pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);
+    border-radius:999px;padding:6px 14px;font-size:13px;color:var(--muted);margin-bottom:22px}
+  .pill .dot{width:7px;height:7px;border-radius:50%;background:#22c55e}
+  h1{font-size:clamp(40px,7vw,68px);font-weight:800;letter-spacing:-.02em;line-height:1.05}
+  h1 .grad{background:linear-gradient(135deg,var(--primary2),var(--primary));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--muted);font-size:18px;max-width:640px;margin:22px auto 0}
+  .sub .en{color:#64748b;font-size:16px}
+  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:34px}
+  /* install */
+  .install{max-width:760px;margin:46px auto 0}
+  .install .label{font-size:13px;color:var(--muted);margin-bottom:8px;text-align:left}
+  .code{display:flex;align-items:center;gap:12px;background:#0d1424;border:1px solid var(--border);
+    border-radius:12px;padding:14px 16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:14px;overflow-x:auto}
+  .code code{color:#cbd5e1;white-space:nowrap}
+  .code .prompt{color:#22c55e;user-select:none}
+  .copy{margin-left:auto;flex:none;border:1px solid var(--border);background:#0a0f1c;color:var(--muted);
+    border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer}
+  .copy:hover{color:var(--fg)}
+  /* mockup */
+  .mock{margin:54px auto 0;max-width:1000px;border-radius:16px;overflow:hidden;
+    border:1px solid var(--border);box-shadow:0 40px 90px -30px rgba(0,0,0,.8)}
+  .mock .bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#0d1424;border-bottom:1px solid var(--border)}
+  .mock .bar i{width:11px;height:11px;border-radius:50%;display:inline-block}
+  .mock img{display:block;width:100%}
+  /* sections */
+  section{padding:70px 0}
+  .stitle{text-align:center;font-size:32px;font-weight:800;letter-spacing:-.02em}
+  .sdesc{text-align:center;color:var(--muted);margin-top:10px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:42px}
+  @media(max-width:860px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.grid{grid-template-columns:1fr}}
+  .feat{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:22px}
+  .feat .ico{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(135deg,#1e3a8a,#1e293b);font-size:20px;margin-bottom:14px}
+  .feat h3{font-size:16px;font-weight:700}
+  .feat p{color:var(--muted);font-size:14px;margin-top:6px}
+  .shots{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-top:42px}
+  @media(max-width:720px){.shots{grid-template-columns:1fr}}
+  .shot{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--card)}
+  .shot img{display:block;width:100%}
+  .shot .cap{padding:12px 16px;font-size:14px;color:var(--muted)}
+  /* deploy */
+  .deploy-card{max-width:820px;margin:0 auto;background:var(--card);border:1px solid var(--border);
+    border-radius:18px;padding:34px}
+  .deploy-card h3{font-size:20px;font-weight:700;margin-bottom:6px}
+  .deploy-card .why{color:var(--muted);font-size:14px;margin-bottom:22px}
+  .deploy-card .why b{color:#fbbf24}
+  footer{border-top:1px solid var(--border);padding:30px 0;color:var(--muted);font-size:14px}
+  footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;align-items:center}
+  .gh{display:inline-flex;align-items:center;gap:8px}
+  svg.i{width:18px;height:18px;vertical-align:middle}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="brand" href="#"><img src="logo.svg" alt="Nimbo"/> Nimbo</a>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#screens">Screenshots</a>
+    <a href="#deploy">Deploy</a>
+    <a class="btn btn-ghost gh" href="https://github.com/seongilp/nimbo">
+      <svg class="i" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      GitHub
+    </a>
+  </div>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <img class="logo-tile" src="logo.svg" alt="Nimbo"/>
+  <div class="pill"><span class="dot"></span> 셀프호스팅 NAS · 서버 관리 콘솔</div>
+  <h1>Your own cloud,<br/><span class="grad">self-hosted.</span></h1>
+  <p class="sub">
+    Linux 서버를 NAS처럼 관리하세요. 파일 · ZFS 스토리지 · 백업 · 컨테이너, 그리고 그 이상을 하나의 아름다운 콘솔에서.<br/>
+    <span class="en">Manage a Linux server like a NAS — files, ZFS storage, backups, containers &amp; more, from one beautiful console.</span>
+  </p>
+
+  <div class="install">
+    <div class="label">한 줄이면 설치 — Node·git 자동 설치, 빌드, systemd 등록까지</div>
+    <div class="code">
+      <span class="prompt">$</span>
+      <code id="cmd">curl -fsSL https://raw.githubusercontent.com/seongilp/nimbo/main/deploy/bootstrap.sh | sudo bash</code>
+      <button class="copy" onclick="navigator.clipboard.writeText(document.getElementById('cmd').textContent);this.textContent='복사됨!';setTimeout(()=>this.textContent='복사',1200)">복사</button>
+    </div>
+  </div>
+
+  <div class="cta">
+    <a class="btn btn-primary" href="https://github.com/seongilp/nimbo">GitHub에서 보기 →</a>
+    <a class="btn btn-ghost" href="#deploy">배포 가이드</a>
+  </div>
+
+  <div class="mock">
+    <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+    <img src="screenshots/desktop.png" alt="Nimbo desktop"/>
+  </div>
+</div></header>
+
+<section id="features"><div class="wrap">
+  <h2 class="stitle">서버 관리에 필요한 모든 것</h2>
+  <p class="sdesc">DSM이 하는 건 거의 다, 그리고 더.</p>
+  <div class="grid">
+    <div class="feat"><div class="ico">🖥️</div><h3>데스크톱 UI</h3><p>macOS 스타일 윈도우·도크·⌘K 명령 팔레트. 브라우저 안의 데스크톱.</p></div>
+    <div class="feat"><div class="ico">🗄️</div><h3>ZFS 관리</h3><p>풀·데이터셋·스냅샷·복제·vdev·ARC 캐시까지 GUI로.</p></div>
+    <div class="feat"><div class="ico">🔄</div><h3>백업 &amp; 동기화</h3><p>rsync 서버, rclone 클라우드(S3·Drive), Time Machine 타깃.</p></div>
+    <div class="feat"><div class="ico">📦</div><h3>패키지 센터</h3><p>Jellyfin·Immich·Nextcloud 등 셀프호스팅 앱 원클릭 설치(docker compose).</p></div>
+    <div class="feat"><div class="ico">🛡️</div><h3>보안</h3><p>방화벽(ufw/firewalld), 2FA(TOTP), 보안 검사, 감사 로그.</p></div>
+    <div class="feat"><div class="ico">📊</div><h3>모니터링</h3><p>CPU·메모리·네트워크·디스크 실시간 대시보드 + 위젯.</p></div>
+    <div class="feat"><div class="ico">📁</div><h3>공유 폴더</h3><p>SMB·NFS 공유 생성·편집, 사용자·그룹 관리.</p></div>
+    <div class="feat"><div class="ico">🔒</div><h3>HTTPS / 인증서</h3><p>Let's Encrypt·자체 서명·가져오기, Caddy 리버스 프록시.</p></div>
+    <div class="feat"><div class="ico">🔔</div><h3>알림</h3><p>이벤트 발생 시 Slack·Telegram·Discord로 즉시 통지.</p></div>
+  </div>
+</div></section>
+
+<section id="screens" style="background:#070b1466"><div class="wrap">
+  <h2 class="stitle">스크린샷</h2>
+  <div class="shots">
+    <div class="shot"><img src="screenshots/dashboard.png" alt="Dashboard"/><div class="cap">대시보드 — 한눈에 보는 시스템 상태</div></div>
+    <div class="shot"><img src="screenshots/zfs.png" alt="ZFS"/><div class="cap">ZFS — 풀·데이터셋·스냅샷</div></div>
+    <div class="shot"><img src="screenshots/packages.png" alt="Package Center"/><div class="cap">패키지 센터 — 셀프호스팅 앱 스토어</div></div>
+    <div class="shot"><img src="screenshots/security.png" alt="Security"/><div class="cap">보안 — 방화벽·2FA·검사</div></div>
+  </div>
+</div></section>
+
+<section id="deploy"><div class="wrap">
+  <div class="deploy-card">
+    <h3>네이티브로 실행 (systemd) — Docker가 아닙니다</h3>
+    <p class="why"><b>Docker가 죽어도 콘솔은 살아있습니다.</b> 그래서 콘솔이 Docker를 다시 살릴 수 있죠. 호스트의 systemd 서비스로 실행되며 <code>Restart=always</code>로 크래시에도 자동 복구됩니다.</p>
+    <div class="label" style="color:var(--muted);font-size:13px;margin-bottom:8px">설치 (RHEL·Rocky·CentOS·Ubuntu·Debian 자동 감지)</div>
+    <div class="code">
+      <span class="prompt">$</span>
+      <code id="cmd2">curl -fsSL https://raw.githubusercontent.com/seongilp/nimbo/main/deploy/bootstrap.sh | sudo bash</code>
+      <button class="copy" onclick="navigator.clipboard.writeText(document.getElementById('cmd2').textContent);this.textContent='복사됨!';setTimeout(()=>this.textContent='복사',1200)">복사</button>
+    </div>
+    <p class="why" style="margin:18px 0 0">HTTPS는 Caddy 리버스 프록시로: <code>… | sudo bash -s -- --caddy your.domain</code> · 포트 변경은 <code>/etc/nimbo/nimbo.env</code>.</p>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <span>Nimbo · MIT License · Built with Next.js</span>
+  <a class="gh" href="https://github.com/seongilp/nimbo">
+    <svg class="i" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+    seongilp/nimbo
+  </a>
+</div></footer>
+
+</body>
+</html>

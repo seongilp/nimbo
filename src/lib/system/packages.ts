@@ -65,7 +65,6 @@ const CATALOG: CatalogEntry[] = [
   jellyfin:
     image: jellyfin/jellyfin
     container_name: jellyfin
-    user: "${c.puid}:${c.pgid}"
     ports:
       - "8096:8096"
     volumes:
@@ -494,7 +493,6 @@ const CATALOG: CatalogEntry[] = [
   grafana:
     image: grafana/grafana
     container_name: grafana
-    user: "${c.puid}"
     ports:
       - "3003:3000"
     environment:
@@ -542,7 +540,6 @@ const CATALOG: CatalogEntry[] = [
   navidrome:
     image: deluan/navidrome
     container_name: navidrome
-    user: "${c.puid}:${c.pgid}"
     ports:
       - "4533:4533"
     environment:

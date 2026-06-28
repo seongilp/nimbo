@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Moon, Sun, Cpu, Thermometer, Cloud, Search, LayoutGrid, Copy, Minus, X } from "lucide-react";
+import { Moon, Sun, Cpu, Thermometer, Cloud, Search, LayoutGrid, Copy, Minus, X, LogOut } from "lucide-react";
 
 import { APP_MAP } from "./app-registry";
 import {
@@ -38,6 +38,14 @@ export function MenuBar() {
   const { theme, toggle } = useTheme();
   const { focusedId, windows, togglePalette, tile, cascade, minimizeAll, closeAll } = useWindowStore();
   const { data: overview } = usePoll<SystemOverview>("/api/overview", 3000);
+  const [user, setUser] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/auth/me").then((r) => r.json()).then((j) => j.ok && setUser(j.user)).catch(() => {});
+  }, []);
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  }
 
   const focused = windows.find((w) => w.id === focusedId && !w.minimized);
   const focusedApp = focused ? APP_MAP[focused.appId] : null;
@@ -60,7 +68,15 @@ export function MenuBar() {
             <DropdownMenuItem className="text-xs text-muted-foreground" disabled>
               Kernel {overview?.kernel ?? "—"}
             </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive">Shut Down…</DropdownMenuItem>
+            {user && (
+              <DropdownMenuItem className="text-xs text-muted-foreground" disabled>
+                로그인: {user}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={logout}>
+              <LogOut className="size-4" /> 로그아웃
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 

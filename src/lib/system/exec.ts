@@ -18,6 +18,17 @@ export interface RunResult {
   code: number;
 }
 
+// When the service runs as a non-root user (the dedicated `nimbo` account) with
+// passwordless sudo, NIMBO_SUDO=1 makes every shell command run as root via
+// `sudo bash -c`. Wrapping the whole command preserves pipes/redirects.
+const USE_SUDO = process.env.NIMBO_SUDO === "1";
+function shq(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+function wrap(command: string): string {
+  return USE_SUDO ? `sudo -n bash -c ${shq(command)}` : command;
+}
+
 /**
  * Run a shell command safely with a timeout. Never throws — on failure returns
  * a non-zero code and the captured stderr so callers can fall back gracefully.
@@ -27,7 +38,7 @@ export async function run(
   opts: { timeoutMs?: number } = {}
 ): Promise<RunResult> {
   try {
-    const { stdout, stderr } = await execAsync(command, {
+    const { stdout, stderr } = await execAsync(wrap(command), {
       timeout: opts.timeoutMs ?? 8000,
       maxBuffer: 1024 * 1024 * 16,
       windowsHide: true,

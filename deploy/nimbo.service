@@ -10,9 +10,11 @@ Wants=network-online.target docker.service
 
 [Service]
 Type=simple
-# Runs as root so it can manage disks, ZFS, systemd, firewall, users, etc.
-# To run hardened as a dedicated user instead, see DEPLOYMENT.md (sudoers).
-User=root
+# Runs as the dedicated `nimbo` account (created by install.sh) with passwordless
+# sudo. Privileged commands run via sudo (NIMBO_SUDO=1 in the env file), so the
+# service process itself is not root.
+User=nimbo
+Group=nimbo
 WorkingDirectory=/opt/nimbo
 EnvironmentFile=/etc/nimbo/nimbo.env
 ExecStart=/usr/bin/node /opt/nimbo/server.js

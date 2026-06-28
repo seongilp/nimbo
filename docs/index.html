@@ -57,7 +57,8 @@
   .install .label{font-size:13px;color:var(--muted);margin-bottom:8px;text-align:left}
   .code{display:flex;align-items:center;gap:12px;background:#0d1424;border:1px solid var(--border);
     border-radius:12px;padding:14px 16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-    font-size:14px;overflow-x:auto}
+    font-size:14px;overflow-x:auto;cursor:pointer;transition:border-color .15s}
+  .code:hover{border-color:var(--accent,#3b82f6)}
   .code code{color:#cbd5e1;white-space:nowrap}
   .code .prompt{color:#22c55e;user-select:none}
   .copy{margin-left:auto;flex:none;border:1px solid var(--border);background:#0a0f1c;color:var(--muted);
@@ -124,10 +125,10 @@
 
   <div class="install">
     <div class="label">한 줄이면 설치 — Node·git 자동 설치, 빌드, systemd 등록까지</div>
-    <div class="code">
+    <div class="code" onclick="copyCmd(this)" title="클릭하면 복사됩니다">
       <span class="prompt">$</span>
       <code id="cmd">curl -fsSL https://raw.githubusercontent.com/seongilp/nimbo/main/deploy/bootstrap.sh | sudo bash</code>
-      <button class="copy" onclick="navigator.clipboard.writeText(document.getElementById('cmd').textContent);this.textContent='복사됨!';setTimeout(()=>this.textContent='복사',1200)">복사</button>
+      <button class="copy" onclick="event.stopPropagation();copyCmd(this.closest('.code'))">복사</button>
     </div>
   </div>
 
@@ -173,10 +174,10 @@
     <h3>네이티브로 실행 (systemd) — Docker가 아닙니다</h3>
     <p class="why"><b>Docker가 죽어도 콘솔은 살아있습니다.</b> 그래서 콘솔이 Docker를 다시 살릴 수 있죠. 호스트의 systemd 서비스로 실행되며 <code>Restart=always</code>로 크래시에도 자동 복구됩니다.</p>
     <div class="label" style="color:var(--muted);font-size:13px;margin-bottom:8px">설치 (RHEL·Rocky·CentOS·Ubuntu·Debian 자동 감지)</div>
-    <div class="code">
+    <div class="code" onclick="copyCmd(this)" title="클릭하면 복사됩니다">
       <span class="prompt">$</span>
       <code id="cmd2">curl -fsSL https://raw.githubusercontent.com/seongilp/nimbo/main/deploy/bootstrap.sh | sudo bash</code>
-      <button class="copy" onclick="navigator.clipboard.writeText(document.getElementById('cmd2').textContent);this.textContent='복사됨!';setTimeout(()=>this.textContent='복사',1200)">복사</button>
+      <button class="copy" onclick="event.stopPropagation();copyCmd(this.closest('.code'))">복사</button>
     </div>
     <p class="why" style="margin:18px 0 0">HTTPS는 Caddy 리버스 프록시로: <code>… | sudo bash -s -- --caddy your.domain</code> · 포트 변경은 <code>/etc/nimbo/nimbo.env</code>.</p>
   </div>
@@ -190,5 +191,29 @@
   </a>
 </div></footer>
 
+<script>
+  // Click anywhere on a command box (or its 복사 button) to copy the command.
+  function copyCmd(box){
+    var code = box.querySelector('code');
+    var btn = box.querySelector('.copy');
+    if(!code) return;
+    var done = function(ok){
+      if(!btn) return;
+      btn.textContent = ok ? '복사됨!' : '복사 실패';
+      setTimeout(function(){ btn.textContent = '복사'; }, 1200);
+    };
+    var text = code.textContent;
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(function(){done(true);}, function(){done(false);});
+    } else {
+      // Fallback for non-secure contexts / older browsers.
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(true); } catch(e){ done(false); }
+      document.body.removeChild(ta);
+    }
+  }
+</script>
 </body>
 </html>

@@ -18,6 +18,8 @@ import {
   Users,
 } from "lucide-react";
 
+import { InstallBlock } from "./install-block";
+
 export const metadata: Metadata = {
   title: "Nimbo — 당신만의 클라우드, 당신의 서버에",
   description:
@@ -425,21 +427,7 @@ export default function LandingPage() {
             </div>
 
             <div className="flex flex-col justify-center">
-              <div className="overflow-hidden rounded-2xl border border-white/10 bg-background/80 shadow-soft">
-                <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2.5">
-                  <Terminal className="size-3.5 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">install</span>
-                </div>
-                <pre className="overflow-x-auto p-5 text-[13px] leading-relaxed">
-                  <code className="font-mono">
-                    <span className="text-muted-foreground select-none">$ </span>
-                    git clone https://github.com/seongilp/nimbo &amp;&amp; cd nimbo
-                    {"\n"}
-                    <span className="text-muted-foreground select-none">$ </span>
-                    <span className="text-primary">sudo</span> ./deploy/install.sh
-                  </code>
-                </pre>
-              </div>
+              <InstallBlock />
               <p className="mt-4 text-xs text-muted-foreground">
                 설치 스크립트가 빌드 · systemd 유닛 등록 · Caddy 설정까지
                 처리합니다. 자세한 내용은 저장소의{" "}

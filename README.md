@@ -5,6 +5,16 @@
 <p align="center"><strong>Your own cloud, self-hosted.</strong><br>당신만의 클라우드, 당신의 서버에.</p>
 
 <p align="center">
+  <a href="https://seongilp.github.io/nimbo/"><strong>🌐 Website / 소개 페이지</strong></a>
+  &nbsp;·&nbsp;
+  <a href="#1-systemd로-띄우는-방법-권장">📦 한 줄 설치</a>
+  &nbsp;·&nbsp;
+  <a href="DEPLOYMENT.md">🚀 배포 가이드</a>
+</p>
+
+<p align="center"><code>curl -fsSL https://raw.githubusercontent.com/seongilp/nimbo/main/deploy/bootstrap.sh | sudo bash</code></p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Next.js-App%20Router-000?logo=nextdotjs&logoColor=white" alt="Next.js">
   <img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Tailwind-v4-38BDF8?logo=tailwindcss&logoColor=white" alt="Tailwind">

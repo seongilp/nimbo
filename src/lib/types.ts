@@ -676,6 +676,41 @@ export interface AuditOverview {
 
 // ---- First-run setup -----------------------------------------------------
 
+// ---- Nimbo console accounts (roles, layered over OS auth) ----------------
+
+export type NimboRole = "admin" | "user";
+
+export interface NimboUser {
+  name: string;
+  role: NimboRole;
+  addedAt: number;
+  lastLogin: number | null;
+}
+
+export interface NimboAuthConfig {
+  adminClaimed: boolean;
+  allowedGroup: string; // empty = any OS account may log in (as user)
+  users: NimboUser[];
+  isMock: boolean;
+}
+
+// ---- fail2ban ------------------------------------------------------------
+
+export interface Fail2banJail {
+  name: string;
+  currentlyBanned: number;
+  totalBanned: number;
+  currentlyFailed: number;
+  bannedIps: string[];
+}
+
+export interface Fail2banStatus {
+  available: boolean;
+  running: boolean;
+  jails: Fail2banJail[];
+  isMock: boolean;
+}
+
 export interface SetupConfig {
   setupComplete: boolean;
   hostname: string;

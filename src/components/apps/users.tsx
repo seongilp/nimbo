@@ -9,6 +9,11 @@ import {
   Trash2,
   Plus,
   ShieldCheck,
+  Shield,
+  UserCog,
+  Save,
+  Crown,
+  Lock,
   Ban,
   CheckCircle2,
   MoreHorizontal,
@@ -37,8 +42,16 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePoll } from "@/lib/hooks/use-poll";
+import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { SysGroup, SysUser, UsersOverview } from "@/lib/types";
+import type {
+  NimboAuthConfig,
+  NimboRole,
+  NimboUser,
+  SysGroup,
+  SysUser,
+  UsersOverview,
+} from "@/lib/types";
 
 type Act = (body: Record<string, unknown>, msg: string) => void;
 
@@ -88,6 +101,7 @@ export function Users() {
           <TabsList>
             <TabsTrigger value="users"><User className="size-3.5" /> 사용자</TabsTrigger>
             <TabsTrigger value="groups"><UsersIcon className="size-3.5" /> 그룹</TabsTrigger>
+            <TabsTrigger value="nimbo"><ShieldCheck className="size-3.5" /> Nimbo 접근</TabsTrigger>
           </TabsList>
           {data?.isMock && <Badge variant="secondary" className="text-[10px]">demo</Badge>}
         </div>
@@ -138,6 +152,11 @@ export function Users() {
               ))}
               {groups.length === 0 && <p className="text-sm text-muted-foreground">그룹이 없습니다.</p>}
             </div>
+          </TabsContent>
+
+          {/* NIMBO ACCESS */}
+          <TabsContent value="nimbo" className="m-0 p-4">
+            <NimboAccessTab />
           </TabsContent>
         </ScrollArea>
       </Tabs>
@@ -525,5 +544,215 @@ function GroupCheckList({
       })}
       {groups.length === 0 && <p className="col-span-2 text-xs text-muted-foreground">그룹이 없습니다.</p>}
     </div>
+  );
+}
+
+// ---- Nimbo 접근 (console accounts layered over OS auth) -------------------
+
+function NimboAccessTab() {
+  const { data, error, loading, refresh } = usePoll<NimboAuthConfig>("/api/nimbo-users", 0);
+  const [busy, setBusy] = useState(false);
+  const [groupDraft, setGroupDraft] = useState<string | null>(null);
+
+  const act: Act = async (body, msg) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/nimbo-users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        toast.success(msg);
+        refresh();
+      } else {
+        toast.error(json.error ?? "작업 실패");
+      }
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // GET 403 (관리자 아님) 또는 기타 오류 → 친절한 안내
+  if (!data && error) {
+    return (
+      <Card className="flex flex-col items-center gap-2 p-10 text-center">
+        <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <Lock className="size-5" />
+        </span>
+        <p className="font-medium">관리자만 접근할 수 있습니다</p>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          Nimbo 콘솔 계정 관리는 관리자 권한이 필요합니다.
+        </p>
+      </Card>
+    );
+  }
+
+  if (!data) {
+    return <p className="py-10 text-center text-sm text-muted-foreground">{loading ? "불러오는 중…" : "데이터가 없습니다."}</p>;
+  }
+
+  const users = data.users;
+  const allowedGroup = groupDraft ?? data.allowedGroup;
+  const dirty = allowedGroup !== data.allowedGroup;
+
+  return (
+    <div className="space-y-4">
+      {/* 안내 */}
+      <Card className="flex gap-3 border-primary/30 bg-primary/[0.04] p-4">
+        <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <ShieldCheck className="size-4" />
+        </span>
+        <div className="space-y-1 text-sm">
+          <p className="font-medium">Nimbo 콘솔 계정</p>
+          <p className="text-muted-foreground">
+            Nimbo에 <span className="font-medium text-foreground">처음 로그인한 OS 계정이 관리자</span>가 됩니다.
+            이후 다른 OS 계정은 <span className="font-medium text-foreground">허용 그룹</span>에 속해야 일반 사용자로 로그인할 수 있고,
+            허용 그룹이 비어 있으면 모든 유효한 OS 계정이 로그인할 수 있습니다.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            여기서 관리하는 콘솔 계정은 다른 탭의 OS 사용자·그룹과는 별개입니다.
+          </p>
+        </div>
+      </Card>
+
+      {/* 허용 그룹 설정 */}
+      <Card className="space-y-2 p-4">
+        <div className="flex items-center gap-2">
+          <UsersIcon className="size-4 text-muted-foreground" />
+          <p className="text-sm font-medium">허용 그룹 설정</p>
+        </div>
+        <div className="flex gap-2">
+          <Input
+            value={allowedGroup}
+            onChange={(e) => setGroupDraft(e.target.value)}
+            placeholder="비워두면 모든 OS 계정 허용"
+            className="h-9"
+          />
+          <Button
+            size="sm"
+            className="h-9 gap-1"
+            disabled={busy || !dirty}
+            onClick={() =>
+              act(
+                { kind: "allowedGroup.set", group: allowedGroup.trim() },
+                allowedGroup.trim() ? `허용 그룹을 '${allowedGroup.trim()}'(으)로 설정했습니다` : "허용 그룹을 해제했습니다",
+              )
+            }
+          >
+            <Save className="size-4" /> 저장
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          비우면 모든 OS 계정이 로그인 가능. 그룹을 지정하면 해당 그룹 멤버만 (관리자는 항상 허용).
+        </p>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span>예시:</span>
+          {["wheel", "sudo"].map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => setGroupDraft(g)}
+              className="rounded border px-1.5 py-0.5 font-mono transition-colors hover:bg-accent"
+            >
+              {g}
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      {/* Nimbo 계정 목록 */}
+      <div>
+        <div className="mb-2 flex items-center gap-2">
+          <p className="text-sm font-medium">Nimbo 계정 목록</p>
+          <Badge variant="secondary" className="text-[10px]">{users.length}</Badge>
+        </div>
+        {!data.adminClaimed || users.length === 0 ? (
+          <Card className="flex flex-col items-center gap-2 p-10 text-center">
+            <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <Shield className="size-5" />
+            </span>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              아직 로그인한 사용자가 없습니다. 처음 로그인하는 OS 계정이 관리자가 됩니다.
+            </p>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {users.map((u) => (
+              <NimboUserCard key={u.name} user={u} busy={busy} act={act} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NimboUserCard({ user, busy, act }: { user: NimboUser; busy: boolean; act: Act }) {
+  const isAdmin = user.role === "admin";
+  const nextRole: NimboRole = isAdmin ? "user" : "admin";
+  return (
+    <Card className="flex items-center justify-between gap-3 p-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className={cn(
+            "flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
+            isAdmin ? "bg-emerald-500/15 text-emerald-600" : "bg-muted text-muted-foreground",
+          )}
+        >
+          {(user.name.charAt(0) || "?").toUpperCase()}
+        </span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate font-medium">{user.name}</span>
+            {isAdmin ? (
+              <Badge className="gap-1 border-0 bg-emerald-500/15 text-emerald-600">
+                <Crown className="size-3" /> 관리자
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="gap-1">
+                <User className="size-3" /> 사용자
+              </Badge>
+            )}
+          </div>
+          <p className="truncate text-xs text-muted-foreground">
+            가입 {formatRelative(user.addedAt)} · 마지막 로그인 {user.lastLogin === null ? "없음" : formatRelative(user.lastLogin)}
+          </p>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 gap-1"
+          disabled={busy}
+          onClick={() =>
+            act(
+              { kind: "user.setRole", name: user.name, role: nextRole },
+              isAdmin ? `${user.name} 사용자를 일반 사용자로 변경했습니다` : `${user.name} 사용자를 관리자로 변경했습니다`,
+            )
+          }
+        >
+          <UserCog className="size-4" />
+          {isAdmin ? "사용자로" : "관리자로"}
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-8 text-destructive"
+          disabled={busy}
+          onClick={() => {
+            if (window.confirm(`${user.name} 계정을 Nimbo 접근에서 삭제할까요?`)) {
+              act({ kind: "user.remove", name: user.name }, `${user.name} 계정을 삭제했습니다`);
+            }
+          }}
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      </div>
+    </Card>
   );
 }

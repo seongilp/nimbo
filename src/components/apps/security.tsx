@@ -5,11 +5,15 @@ import {
   Shield,
   ShieldCheck,
   ShieldAlert,
+  ShieldBan,
+  Ban,
   Flame,
   Lock,
   KeyRound,
   Plus,
   Trash2,
+  RotateCcw,
+  CircleSlash,
   CheckCircle2,
   AlertTriangle,
   XCircle,
@@ -33,7 +37,13 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePoll } from "@/lib/hooks/use-poll";
 import { cn } from "@/lib/utils";
-import type { FirewallRule, SecurityCheck, SecurityOverview } from "@/lib/types";
+import type {
+  FirewallRule,
+  SecurityCheck,
+  SecurityOverview,
+  Fail2banStatus,
+  Fail2banJail,
+} from "@/lib/types";
 
 type Act = (body: Record<string, unknown>, msg: string) => void;
 
@@ -52,6 +62,7 @@ const SEVERITY: Record<SecurityCheck["severity"], { dot: string; badge: string; 
 
 export function Security() {
   const { data, refresh } = usePoll<SecurityOverview>("/api/security", 0);
+  const { data: f2b, refresh: refreshF2b } = usePoll<Fail2banStatus>("/api/fail2ban", 5000);
   const [addOpen, setAddOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -77,6 +88,28 @@ export function Security() {
     }
   };
 
+  const f2bAct: Act = async (body, msg) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/fail2ban", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        toast.success(msg);
+        refreshF2b();
+      } else {
+        toast.error(json.error ?? "작업 실패");
+      }
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const fw = data?.firewall;
   const checks = data?.checks ?? [];
   const tfa = data?.twoFactor;
@@ -89,6 +122,7 @@ export function Security() {
           <TabsList>
             <TabsTrigger value="firewall"><Flame className="size-3.5" /> 방화벽</TabsTrigger>
             <TabsTrigger value="advisor"><ShieldCheck className="size-3.5" /> 보안 검사</TabsTrigger>
+            <TabsTrigger value="fail2ban"><ShieldBan className="size-3.5" /> fail2ban</TabsTrigger>
             <TabsTrigger value="2fa"><KeyRound className="size-3.5" /> 2단계 인증</TabsTrigger>
           </TabsList>
           {data?.isMock && <Badge variant="secondary" className="text-[10px]">demo</Badge>}
@@ -226,6 +260,60 @@ export function Security() {
             </div>
           </TabsContent>
 
+          {/* FAIL2BAN */}
+          <TabsContent value="fail2ban" className="m-0 space-y-3 p-4">
+            {f2b && f2b.available === false && (
+              <Card className="flex flex-col items-center gap-4 p-8 text-center">
+                <CircleSlash className="size-10 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium">fail2ban이 설치되어 있지 않습니다</p>
+                  <p className="mt-1 max-w-sm text-xs text-muted-foreground">이 호스트에 fail2ban이 설치되어 있지 않습니다. 무차별 대입 공격 차단을 사용하려면 fail2ban을 설치하세요.</p>
+                </div>
+                <div className="flex flex-col gap-1 text-xs text-muted-foreground/80">
+                  <code className="rounded-md bg-muted/60 px-3 py-1.5 font-mono">dnf install fail2ban</code>
+                  <code className="rounded-md bg-muted/60 px-3 py-1.5 font-mono">apt install fail2ban</code>
+                </div>
+              </Card>
+            )}
+
+            {f2b && f2b.available && (
+              <>
+                <Card className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <span className={cn("flex size-10 items-center justify-center rounded-lg", f2b.running ? "bg-emerald-500/15 text-emerald-500" : "bg-muted text-muted-foreground")}>
+                      <ShieldBan className="size-5" />
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium">fail2ban</p>
+                        <Badge className={cn("border-0 text-[10px]", f2b.running ? "bg-emerald-500/15 text-emerald-500" : "bg-muted text-muted-foreground")}>
+                          {f2b.running ? "실행 중" : "중지됨"}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{f2b.jails.length}개 jail · 로그 감시로 공격 IP 자동 차단</p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={f2b.running}
+                    disabled={busy}
+                    onCheckedChange={(v) => f2bAct({ kind: "toggle", ip: v ? "on" : "off" }, v ? "fail2ban 시작됨" : "fail2ban 중지됨")}
+                  />
+                </Card>
+
+                {f2b.jails.map((jail) => (
+                  <JailCard key={jail.name} jail={jail} act={f2bAct} busy={busy} />
+                ))}
+                {f2b.jails.length === 0 && (
+                  <Card className="p-4 text-center text-sm text-muted-foreground">활성화된 jail이 없습니다.</Card>
+                )}
+
+                <p className="px-1 text-xs leading-relaxed text-muted-foreground/80">
+                  fail2ban이 로그(SSH 등)를 감시해 무차별 대입 공격 IP를 자동 차단합니다. Nimbo 자체 로그인도 5회 실패 시 15분 잠금됩니다.
+                </p>
+              </>
+            )}
+          </TabsContent>
+
           {/* 2FA */}
           <TabsContent value="2fa" className="m-0 space-y-3 p-4">
             {tfa && (
@@ -276,6 +364,56 @@ export function Security() {
 
       <AddRuleDialog open={addOpen} onOpenChange={setAddOpen} act={act} busy={busy} />
     </div>
+  );
+}
+
+function JailCard({ jail, act, busy }: { jail: Fail2banJail; act: Act; busy: boolean }) {
+  return (
+    <Card className="space-y-3 p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Flame className="size-4 text-amber-500" />
+          <span className="font-mono text-sm font-medium">{jail.name}</span>
+        </div>
+        <div className="flex items-center gap-4 text-xs">
+          <div className="text-center">
+            <p className="text-base font-semibold text-red-500">{jail.currentlyBanned}</p>
+            <p className="text-[10px] text-muted-foreground">현재 차단</p>
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-medium text-muted-foreground">{jail.totalBanned}</p>
+            <p className="text-[10px] text-muted-foreground">누적 차단</p>
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-medium text-muted-foreground">{jail.currentlyFailed}</p>
+            <p className="text-[10px] text-muted-foreground">실패 감지</p>
+          </div>
+        </div>
+      </div>
+
+      {jail.bannedIps.length > 0 ? (
+        <div className="divide-y divide-border/40 overflow-hidden rounded-md border">
+          {jail.bannedIps.map((ip) => (
+            <div key={ip} className="flex items-center justify-between px-3 py-1.5 hover:bg-accent/30">
+              <span className="flex items-center gap-2 font-mono text-xs">
+                <Ban className="size-3.5 text-red-500" />{ip}
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 px-2 text-[11px]"
+                disabled={busy}
+                onClick={() => act({ kind: "unban", jail: jail.name, ip }, `${ip} 차단 해제됨`)}
+              >
+                <RotateCcw className="size-3.5" /> 차단 해제
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">현재 차단된 IP가 없습니다.</p>
+      )}
+    </Card>
   );
 }
 

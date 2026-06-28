@@ -1,0 +1,9 @@
+# Protect SSH against brute-force. Reads the systemd journal (no log file
+# needed). install.sh drops this alongside the Nimbo jail.
+
+[sshd]
+enabled  = true
+backend  = systemd
+maxretry = 5
+findtime = 600
+bantime  = 3600

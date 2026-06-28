@@ -157,9 +157,10 @@ if command -v fail2ban-client >/dev/null; then
   mkdir -p /etc/fail2ban/filter.d /etc/fail2ban/jail.d
   cp "$SRC/deploy/fail2ban/filter.d/nimbo.conf" /etc/fail2ban/filter.d/nimbo.conf
   cp "$SRC/deploy/fail2ban/jail.d/nimbo.conf"   /etc/fail2ban/jail.d/nimbo.conf
+  cp "$SRC/deploy/fail2ban/jail.d/sshd.local"   /etc/fail2ban/jail.d/sshd.local
   systemctl enable --now fail2ban || true
   fail2ban-client reload >/dev/null 2>&1 || systemctl restart fail2ban || true
-  echo "   jail 'nimbo' 등록됨 (5회/10분 실패 → 1시간 차단). 확인: fail2ban-client status nimbo"
+  echo "   jail 'nimbo' + 'sshd' 등록됨 (5회/10분 실패 → 1시간 차단). 확인: fail2ban-client status"
 else
   echo "   ⚠ fail2ban 설치 실패 — 내장 락아웃(5회/15분)만 동작합니다."
 fi

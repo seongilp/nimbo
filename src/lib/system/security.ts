@@ -578,7 +578,9 @@ export async function runSecurityAction(a: SecurityAction): Promise<{ ok: boolea
           // Best-effort: derive the firewalld object from the id we stored at
           // read time (fwport-<port>-<proto> or fwsvc-<service>).
           const portMatch = a.id.match(/^fwport-([0-9-]+)-(tcp|udp|any)$/);
-          const svcMatch = a.id.match(/^fwsvc-(.+)$/);
+          // Constrain the service name to firewalld-legal characters so it can
+          // never carry shell metacharacters into the interpolated command.
+          const svcMatch = a.id.match(/^fwsvc-([A-Za-z0-9._-]+)$/);
           if (portMatch) {
             const port = portMatch[1];
             const protos = portMatch[2] === "any" ? ["tcp", "udp"] : [portMatch[2]];

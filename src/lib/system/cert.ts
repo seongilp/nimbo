@@ -2,7 +2,7 @@ import { readdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 
 import type { HttpsConfig, TlsCert } from "@/lib/types";
-import { hasCommand, run, USE_MOCK } from "./exec";
+import { hasCommand, runArgs, USE_MOCK } from "./exec";
 
 const CERT_DIR = process.env.CERT_DIR ?? "/etc/nimbo/certs";
 const DAY = 86_400_000;
@@ -13,8 +13,10 @@ const DAY = 86_400_000;
 const PROXY_NOTE =
   "실제 TLS 종료는 전면 리버스 프록시(Caddy/nginx)에서 처리되며, 이 설정은 해당 HTTPS 구성을 제어합니다.";
 
-const DOMAIN_RE = /^[A-Za-z0-9.*_-]+$/;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+$/;
+// Optional `*.` wildcard prefix, then labels; no leading/trailing dash, no
+// metacharacters. Rejects anything that could be read as a CLI flag or shell.
+const DOMAIN_RE = /^(\*\.)?[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$/;
+const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
 // --------------------------------------------------------------------------
 // Mock state (mutable)
@@ -126,9 +128,9 @@ async function listRealCerts(): Promise<TlsCert[]> {
   }
   for (const f of files) {
     const full = path.join(CERT_DIR, f);
-    const { stdout, code } = await run(
-      `openssl x509 -in ${full} -noout -subject -issuer -dates -ext subjectAltName`,
-    );
+    const { stdout, code } = await runArgs("openssl", [
+      "x509", "-in", full, "-noout", "-subject", "-issuer", "-dates", "-ext", "subjectAltName",
+    ]);
     if (code !== 0) continue;
     const parsed = parseCertFile(full, stdout);
     if (parsed) certs.push(parsed);
@@ -206,8 +208,9 @@ export async function runCertAction(a: CertAction): Promise<ActionResult> {
       if (!USE_MOCK) {
         if (!(await hasCommand("certbot"))) return fail("certbot 필요");
         const challenge = a.dns ? "--dns-cloudflare" : "--standalone";
-        const { code, stderr } = await run(
-          `certbot certonly --non-interactive --agree-tos -m ${a.email} ${challenge} -d ${a.domain}`,
+        const { code, stderr } = await runArgs(
+          "certbot",
+          ["certonly", "--non-interactive", "--agree-tos", "-m", a.email, challenge, "-d", a.domain],
           { timeoutMs: 120_000 },
         );
         if (code !== 0) return fail(stderr.trim() || "certbot 발급 실패 — 권한 필요");
@@ -232,8 +235,12 @@ export async function runCertAction(a: CertAction): Promise<ActionResult> {
       if (!USE_MOCK) {
         const key = path.join(CERT_DIR, `${a.domain}.key`);
         const crt = path.join(CERT_DIR, `${a.domain}.crt`);
-        const { code, stderr } = await run(
-          `openssl req -x509 -newkey rsa:2048 -nodes -keyout ${key} -out ${crt} -days 365 -subj "/CN=${a.domain}"`,
+        const { code, stderr } = await runArgs(
+          "openssl",
+          [
+            "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", key, "-out", crt, "-days", "365", "-subj", `/CN=${a.domain}`,
+          ],
           { timeoutMs: 30_000 },
         );
         if (code !== 0) return fail(stderr.trim() || `openssl 실패 — ${CERT_DIR} 쓰기 권한 필요`);
@@ -301,7 +308,7 @@ export async function runCertAction(a: CertAction): Promise<ActionResult> {
       const target = state.certs.find((c) => c.id === a.id);
       if (!target) return fail("인증서를 찾을 수 없습니다.");
       if (!USE_MOCK) {
-        const { code, stderr } = await run(`certbot renew --cert-name ${target.domain}`, {
+        const { code, stderr } = await runArgs("certbot", ["renew", "--cert-name", target.domain], {
           timeoutMs: 120_000,
         });
         if (code !== 0) return fail(stderr.trim() || "certbot 갱신 실패 — 권한 필요");

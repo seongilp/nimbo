@@ -5,7 +5,7 @@ import type {
   RcloneType,
   SyncSchedule,
 } from "@/lib/types";
-import { hasCommand, run, USE_MOCK } from "./exec";
+import { hasCommand, run, shq, USE_MOCK } from "./exec";
 
 const GiB = 1024 ** 3;
 
@@ -186,10 +186,6 @@ export interface CloudAction {
   config?: Record<string, string>;
 }
 
-// Single-quote a value for safe shell interpolation.
-function shq(s: string): string {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'";
-}
 
 function ok() {
   return { ok: true as const };

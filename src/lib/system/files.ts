@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { DirListing, FileEntry } from "@/lib/types";
@@ -6,10 +6,16 @@ import { USE_MOCK } from "./exec";
 import { mockListing } from "./mock";
 
 /**
- * Roots the file browser is allowed to read. In a real deployment this would be
- * the configured share volumes. Anything outside is rejected to avoid traversal.
+ * Roots the file browser is allowed to read — the configured share volumes.
+ * Defaults to common NAS mount locations (NOT "/", which would expose the whole
+ * filesystem to any logged-in user). Override with NAS_FILE_ROOTS (colon-
+ * separated) to match the real share layout. Anything outside — including via a
+ * symlink that points out of an allowed root — is rejected.
  */
-const ALLOWED_ROOTS = (process.env.NAS_FILE_ROOTS ?? "/").split(":").filter(Boolean);
+const ALLOWED_ROOTS = (process.env.NAS_FILE_ROOTS ?? "/srv:/mnt:/home:/volume1")
+  .split(":")
+  .filter(Boolean)
+  .map((r) => path.resolve(r));
 
 function isAllowed(target: string): boolean {
   const resolved = path.resolve(target);
@@ -30,9 +36,18 @@ function permString(mode: number, isDir: boolean): string {
 export async function listDirectory(requested: string): Promise<DirListing> {
   if (USE_MOCK) return mockListing(requested);
 
-  const target = path.resolve(requested || "/");
-  if (!isAllowed(target)) {
+  const requestedPath = path.resolve(requested || ALLOWED_ROOTS[0] || "/");
+  if (!isAllowed(requestedPath)) {
     throw new Error("Access to this path is not permitted");
+  }
+  // Resolve symlinks and re-check: a symlink inside an allowed root must not be
+  // a stepping stone out of it.
+  let target = requestedPath;
+  try {
+    target = await realpath(requestedPath);
+    if (!isAllowed(target)) throw new Error("Access to this path is not permitted");
+  } catch (err) {
+    throw err instanceof Error ? err : new Error("Access to this path is not permitted");
   }
 
   const dirents = await readdir(target, { withFileTypes: true });

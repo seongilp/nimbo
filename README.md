@@ -111,11 +111,46 @@ if the app is exposed directly, those headers are spoofable.
 | Var | Default | Purpose |
 | --- | --- | --- |
 | `NAS_MOCK` | unset | `1` forces demo data |
-| `NAS_FILE_ROOTS` | `/` | Colon-separated roots File Station may read |
+| `NAS_FILE_ROOTS` | `/srv:/mnt:/home:/volume1` | Colon-separated roots File Station may read (symlink-escape is blocked) |
 | `NIMBO_SECRET` | unset | Session-signing key. **Required in production** — without it the app fails closed (sessions disabled, no login). `install.sh` auto-generates one; set it yourself for Docker (`-e NIMBO_SECRET=$(openssl rand -hex 32)`). |
+
+## 제거 (Uninstall)
+
+`install.sh`가 설치한 모든 것을 되돌립니다. root로 실행하세요.
+
+```bash
+# 1) 서비스 중지 · 비활성화
+sudo systemctl disable --now nimbo
+sudo rm -f /etc/systemd/system/nimbo.service
+sudo systemctl daemon-reload
+
+# 2) fail2ban jail 제거 (설치 시 추가된 경우)
+sudo rm -f /etc/fail2ban/jail.d/nimbo.conf /etc/fail2ban/filter.d/nimbo.conf
+sudo systemctl reload fail2ban 2>/dev/null || true
+#    /etc/fail2ban/jail.d/sshd.local 은 일반 SSH 보호 설정이라 필요하면 남겨두세요.
+
+# 3) 앱 번들 · 소스 체크아웃 · sudo 규칙 삭제
+sudo rm -rf /opt/nimbo /opt/nimbo-src
+sudo rm -f /etc/sudoers.d/nimbo
+
+# 4) 설정 · 데이터 삭제
+#    ⚠ NIMBO_SECRET(세션 키) · 사용자 역할(users.json) · 감사 로그 · 스냅샷 스케줄이
+#    함께 사라집니다. 재설치하며 이 값들을 유지하려면 이 단계를 건너뛰세요.
+sudo rm -rf /etc/nimbo
+
+# 5) 서비스 계정 제거 (홈 디렉터리 · docker 그룹 멤버십 포함)
+sudo userdel -r nimbo 2>/dev/null || true
+
+# 6) (선택) 설치 시 --caddy 를 썼다면 Caddy 설정도
+# sudo rm -f /etc/caddy/Caddyfile && sudo systemctl reload caddy
+```
 
 ## Security notes
 
-This v1 has **no authentication** — put it behind an authenticating reverse proxy
-(or a VPN) before exposing it. File access is constrained to `NAS_FILE_ROOTS`,
-and Docker actions are restricted to a fixed allowlist of verbs.
+Nimbo authenticates against the host's **OS accounts (PAM/shadow)** with
+HMAC-signed session cookies, **role-based access** (first login claims admin),
+in-process **brute-force lockout**, and an optional **fail2ban** jail. Even so,
+expose it only behind an **HTTPS reverse proxy bound to `127.0.0.1`** (see the
+proxy notes above). Privileged actions run via argv (no shell), the file browser
+is constrained to `NAS_FILE_ROOTS`, and Docker actions use a fixed verb allowlist.
+`NIMBO_SECRET` **must** be set in production — without it the app fails closed.

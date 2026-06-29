@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/api/guard";
 
 import { run, USE_MOCK } from "@/lib/system/exec";
 
@@ -14,6 +15,8 @@ const COMMANDS: Record<string, string> = {
 
 export async function POST(request: Request) {
   try {
+    const gate = await requireAdmin();
+    if (gate instanceof NextResponse) return gate;
     const body = (await request.json()) as { action?: string };
     const cmd = body.action ? COMMANDS[body.action] : undefined;
     if (!cmd) {

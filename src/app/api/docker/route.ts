@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/api/guard";
 
 import { containerAction, getContainers } from "@/lib/system/docker";
 
@@ -16,6 +17,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const gate = await requireAdmin();
+    if (gate instanceof NextResponse) return gate;
     const body = (await request.json()) as { id?: string; action?: string };
     if (!body.id || !body.action) {
       return NextResponse.json({ ok: false, error: "id and action are required" }, { status: 400 });

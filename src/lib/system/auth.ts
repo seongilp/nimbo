@@ -3,14 +3,30 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import type { NimboAuthConfig, NimboRole, NimboUser } from "@/lib/types";
-import { run, USE_MOCK } from "./exec";
+import { run, runArgs, shq, USE_MOCK } from "./exec";
 import { logAudit } from "./audit";
+import { getSecret as readSecret, isInsecureSecret, isProduction } from "@/lib/secret";
 
 // Shared secret for signing session tokens. MUST be provided via NIMBO_SECRET
 // in production (install.sh generates one) so the Edge middleware verifies
-// tokens with the same key. Dev falls back.
+// tokens with the same key. Dev falls back to a well-known value.
+//
+// Fail closed: in production a missing/dev secret would make sessions forgeable
+// by anyone, so we refuse to mint or trust tokens until a real secret is set.
+if (isProduction() && isInsecureSecret()) {
+  console.error(
+    "[nimbo] FATAL: NIMBO_SECRET is unset or the dev default in production. " +
+      "Sessions are disabled until a strong secret is configured (e.g. `openssl rand -hex 32`)."
+  );
+}
+
 export function getSecret(): string {
-  return process.env.NIMBO_SECRET || "nimbo-dev-insecure-secret-change-me";
+  return readSecret();
+}
+
+/** False when running production with no real secret — callers must fail closed. */
+function secretUsable(): boolean {
+  return !(isProduction() && isInsecureSecret());
 }
 
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
@@ -24,12 +40,16 @@ function b64url(buf: Buffer | string): string {
 }
 
 export function signToken(user: string, role: NimboRole): string {
+  if (!secretUsable()) {
+    throw new Error("NIMBO_SECRET가 설정되지 않아 세션을 발급할 수 없습니다.");
+  }
   const payload = b64url(JSON.stringify({ u: user, r: role, exp: Date.now() + SESSION_TTL_MS }));
   const sig = b64url(crypto.createHmac("sha256", getSecret()).update(payload).digest());
   return `${payload}.${sig}`;
 }
 
 export function verifyToken(token: string | undefined): { u: string; r: NimboRole; exp: number } | null {
+  if (!secretUsable()) return null; // fail closed: never trust tokens signed with the dev key in prod
   if (!token || !token.includes(".")) return null;
   const [payload, sig] = token.split(".");
   const expected = b64url(crypto.createHmac("sha256", getSecret()).update(payload).digest());
@@ -80,7 +100,8 @@ async function inGroup(user: string, group: string): Promise<boolean> {
   if (!group) return true;
   if (!GROUP_RE.test(group)) return false;
   if (USE_MOCK) return user === "admin"; // dev
-  const { stdout, code } = await run(`id -nG ${user}`);
+  if (!USER_RE.test(user)) return false;
+  const { stdout, code } = await runArgs("id", ["-nG", user]);
   if (code !== 0) return false;
   return stdout.split(/\s+/).includes(group);
 }
@@ -97,28 +118,29 @@ export function loginLocked(ip: string): number {
   if (a && a.until > Date.now() && a.fails >= MAX_FAILS) return Math.ceil((a.until - Date.now()) / 1000);
   return 0;
 }
+// Drop expired entries so a flood of distinct source IPs cannot grow the map
+// without bound (it is purely in-process, reset on restart).
+function pruneAttempts(now: number) {
+  if (attempts.size < 2048) return;
+  for (const [ip, a] of attempts) if (a.until < now) attempts.delete(ip);
+}
 function recordFail(ip: string) {
   const now = Date.now();
-  const a = attempts.get(ip) ?? { fails: 0, until: 0 };
-  if (a.until < now) a.fails = 0;
-  a.fails += 1;
-  a.until = now + (a.fails >= MAX_FAILS ? LOCK_MS : WINDOW_MS);
-  attempts.set(ip, a);
+  pruneAttempts(now);
+  const prev = attempts.get(ip) ?? { fails: 0, until: 0 };
+  const fails = (prev.until < now ? 0 : prev.fails) + 1;
+  attempts.set(ip, { fails, until: now + (fails >= MAX_FAILS ? LOCK_MS : WINDOW_MS) });
 }
 function recordSuccess(ip: string) {
   attempts.delete(ip);
 }
 
 // ---- OS password verification --------------------------------------------
-function shq(s: string): string {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'";
-}
-
 export async function verifyOsPassword(user: string, password: string): Promise<boolean> {
   if (!USER_RE.test(user) || !password) return false;
   if (USE_MOCK) return (user === "admin" || user === "root") && password === user;
 
-  const { stdout, code } = await run(`getent shadow ${user}`);
+  const { stdout, code } = await runArgs("getent", ["shadow", user]);
   if (code !== 0 || !stdout.includes(":")) return false;
   const hash = stdout.split(":")[1];
   if (!hash || hash.startsWith("!") || hash.startsWith("*") || hash === "") return false;
@@ -156,23 +178,28 @@ export async function login(user: string, password: string, ip: string): Promise
   logAudit(user, "로그인", "Nimbo 웹 콘솔", "success", ip);
 
   const cfg = await loadAuthConfig();
+  const now = Date.now();
   let role: NimboRole;
+  let nextCfg: NimboAuthConfig;
   const existing = cfg.users.find((u) => u.name === user);
   if (existing) {
     role = existing.role;
-    existing.lastLogin = Date.now();
+    nextCfg = { ...cfg, users: cfg.users.map((u) => (u.name === user ? { ...u, lastLogin: now } : u)) };
   } else if (!cfg.adminClaimed) {
     // First successful login claims admin.
     role = "admin";
-    cfg.adminClaimed = true;
-    cfg.users.push({ name: user, role, addedAt: Date.now(), lastLogin: Date.now() });
+    nextCfg = {
+      ...cfg,
+      adminClaimed: true,
+      users: [...cfg.users, { name: user, role, addedAt: now, lastLogin: now }],
+    };
   } else if (await inGroup(user, cfg.allowedGroup)) {
     role = "user";
-    cfg.users.push({ name: user, role, addedAt: Date.now(), lastLogin: Date.now() });
+    nextCfg = { ...cfg, users: [...cfg.users, { name: user, role, addedAt: now, lastLogin: now }] };
   } else {
     return { ok: false, error: "이 계정은 Nimbo 접근이 허용되지 않았습니다. 관리자에게 문의하세요." };
   }
-  await saveAuthConfig(cfg);
+  await saveAuthConfig(nextCfg);
 
   return { ok: true, token: signToken(user, role), user, role };
 }
@@ -197,23 +224,24 @@ export async function runAuthAdminAction(a: AuthAdminAction): Promise<{ ok: bool
       if (!u) return { ok: false, error: "사용자를 찾을 수 없습니다" };
       if (u.role === "admin" && a.role === "user" && cfg.users.filter((x) => x.role === "admin").length <= 1)
         return { ok: false, error: "마지막 관리자는 강등할 수 없습니다" };
-      u.role = a.role === "admin" ? "admin" : "user";
-      await saveAuthConfig(cfg);
+      const nextRole: NimboRole = a.role === "admin" ? "admin" : "user";
+      await saveAuthConfig({
+        ...cfg,
+        users: cfg.users.map((x) => (x.name === a.name ? { ...x, role: nextRole } : x)),
+      });
       return { ok: true };
     }
     case "user.remove": {
       const u = cfg.users.find((x) => x.name === a.name);
       if (u?.role === "admin" && cfg.users.filter((x) => x.role === "admin").length <= 1)
         return { ok: false, error: "마지막 관리자는 삭제할 수 없습니다" };
-      cfg.users = cfg.users.filter((x) => x.name !== a.name);
-      await saveAuthConfig(cfg);
+      await saveAuthConfig({ ...cfg, users: cfg.users.filter((x) => x.name !== a.name) });
       return { ok: true };
     }
     case "allowedGroup.set": {
       const g = (a.group ?? "").trim();
       if (g && !GROUP_RE.test(g)) return { ok: false, error: "잘못된 그룹 이름" };
-      cfg.allowedGroup = g;
-      await saveAuthConfig(cfg);
+      await saveAuthConfig({ ...cfg, allowedGroup: g });
       return { ok: true };
     }
     default:

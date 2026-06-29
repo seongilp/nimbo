@@ -11,6 +11,9 @@ const NFS_EXPORTS = process.env.NFS_EXPORTS ?? "/etc/exports.d/nas.exports";
 // Validation charsets (no shell metacharacters).
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_\- ]*$/;
 const PATH_RE = /^[A-Za-z0-9._\-/]+$/;
+// A samba `valid users` list: names, @groups, commas/spaces — nothing that could
+// open a new directive or [stanza]. Empty is allowed.
+const VALID_USERS_RE = /^[A-Za-z0-9_,@.+\- ]*$/;
 
 interface State {
   folders: SharedFolder[];
@@ -93,7 +96,9 @@ function generateSmbConf(): string {
   for (const f of state.folders) {
     if (!f.smbEnabled) continue;
     lines.push(`[${f.name}]`);
-    if (f.description) lines.push(`    comment = ${f.description}`);
+    // Defence in depth: collapse any stray newline so a value can never inject
+    // a further directive even if validation is bypassed.
+    if (f.description) lines.push(`    comment = ${f.description.replace(/[\r\n]+/g, " ")}`);
     lines.push(`    path = ${f.path}`);
     lines.push(`    read only = ${f.readOnly ? "yes" : "no"}`);
     lines.push(`    guest ok = ${f.guestOk ? "yes" : "no"}`);
@@ -271,6 +276,10 @@ function validateFolder(f: SharedFolder | undefined): string | null {
   if (!f) return "folder required";
   if (!f.name || !NAME_RE.test(f.name)) return "invalid name";
   if (!f.path || !PATH_RE.test(f.path)) return "invalid path";
+  // Reject anything that could break out of the generated smb.conf value and
+  // inject a new directive or [stanza] (CR/LF) or a section header ([).
+  if (f.description && /[\r\n[\]]/.test(f.description)) return "invalid description";
+  if (f.validUsers && !VALID_USERS_RE.test(f.validUsers)) return "invalid valid users";
   return null;
 }
 

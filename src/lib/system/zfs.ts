@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import nodePath from "node:path";
 
 import type {
   ArcStats,
@@ -13,7 +14,7 @@ import type {
   ZfsSnapshot,
   ZpoolInfo,
 } from "@/lib/types";
-import { hasCommand, run, USE_MOCK } from "./exec";
+import { hasCommand, run, runArgs, USE_MOCK } from "./exec";
 import { emitEvent } from "./notify";
 
 const GiB = 1024 ** 3;
@@ -176,8 +177,35 @@ async function runSchedule(s: SnapshotSchedule): Promise<void> {
       .map((l) => l.split("\t")[0])
       .filter((n) => n?.startsWith(`${s.dataset}@${prefix}`));
     for (const old of names.slice(0, Math.max(0, names.length - s.keep))) {
-      await run(`zfs destroy ${old}`);
+      await runArgs("zfs", ["destroy", old]);
     }
+  }
+}
+
+// Snapshot schedules persist across restarts (real mode) so a reboot does not
+// silently drop the user's snapshot policy.
+const SCHED_FILE =
+  process.env.NIMBO_ZFS_SCHED_FILE ??
+  nodePath.join(nodePath.dirname(process.env.NIMBO_AUTH_FILE ?? "/etc/nimbo/users.json"), "zfs-schedules.json");
+
+let schedulesLoaded = USE_MOCK; // mock seeds in-memory; real mode hydrates from disk
+async function ensureSchedulesLoaded(): Promise<void> {
+  if (schedulesLoaded) return;
+  schedulesLoaded = true;
+  try {
+    const arr = JSON.parse(await readFile(SCHED_FILE, "utf8"));
+    if (Array.isArray(arr)) mock.schedules = arr as SnapshotSchedule[];
+  } catch {
+    // no persisted schedules yet
+  }
+}
+async function persistSchedules(): Promise<void> {
+  if (USE_MOCK) return;
+  try {
+    await mkdir(nodePath.dirname(SCHED_FILE), { recursive: true });
+    await writeFile(SCHED_FILE, JSON.stringify(mock.schedules, null, 2), "utf8");
+  } catch {
+    // best-effort
   }
 }
 
@@ -187,6 +215,7 @@ function startScheduler() {
   tickerStarted = true;
   setInterval(async () => {
     const now = Date.now();
+    let changed = false;
     for (const s of mock.schedules) {
       if (!s.enabled || s.nextRun > now) continue;
       try {
@@ -196,7 +225,9 @@ function startScheduler() {
       }
       s.lastRun = now;
       s.nextRun = now + INTERVAL_MS[s.interval];
+      changed = true;
     }
+    if (changed) void persistSchedules();
   }, 30_000);
 }
 
@@ -342,6 +373,7 @@ function mockArc(): ArcStats {
 // Read API
 // --------------------------------------------------------------------------
 export async function getZfsOverview(): Promise<ZfsOverview> {
+  await ensureSchedulesLoaded();
   startScheduler();
   if (USE_MOCK) {
     return {
@@ -653,6 +685,9 @@ export interface ZfsAction {
 }
 
 const DEV_RE = /^\/dev\/[A-Za-z0-9._\-/]+$/;
+// A pool member reference: /dev path, short kernel name (sdb), by-id path, or
+// GUID. Must start alphanumeric so it can never be read as a CLI flag.
+const MEMBER_RE = /^[A-Za-z0-9][A-Za-z0-9._:\-/]*$/;
 const POOL_TYPES = new Set(["mirror", "raidz1", "raidz2", "raidz3", "stripe"]);
 const HOST_RE = /^[A-Za-z0-9._@\-]+$/;
 
@@ -678,42 +713,42 @@ export async function runZfsAction(a: ZfsAction): Promise<{ ok: boolean; error?:
   switch (a.kind) {
     case "pool.scrub":
       if (!isPoolName) return fail("invalid pool");
-      return exec(`zpool scrub ${a.stop ? "-s " : ""}${name}`);
+      return execArgs("zpool", ["scrub", ...(a.stop ? ["-s"] : []), name]);
     case "pool.trim":
       if (!isPoolName) return fail("invalid pool");
-      return exec(`zpool trim ${name}`);
+      return execArgs("zpool", ["trim", name]);
     case "pool.clear":
       if (!isPoolName) return fail("invalid pool");
-      return exec(`zpool clear ${name}`);
+      return execArgs("zpool", ["clear", name]);
     case "pool.export":
       if (!isPoolName) return fail("invalid pool");
-      return exec(`zpool export ${name}`);
+      return execArgs("zpool", ["export", name]);
     case "dataset.create":
       if (!isDsName) return fail("invalid dataset name");
-      return exec(`zfs create ${name}`);
+      return execArgs("zfs", ["create", name]);
     case "dataset.destroy":
       if (!isDsName) return fail("invalid dataset name");
-      return exec(`zfs destroy ${a.recursive ? "-r " : ""}${name}`);
+      return execArgs("zfs", ["destroy", ...(a.recursive ? ["-r"] : []), name]);
     case "dataset.setprop":
       if (!isDsName || !a.prop || a.value === undefined) return fail("invalid args");
       if (!/^[a-z0-9:_.]+$/i.test(a.prop) || !/^[A-Za-z0-9:_.\-/]+$/.test(a.value))
         return fail("invalid property");
-      return exec(`zfs set ${a.prop}=${a.value} ${name}`);
+      return execArgs("zfs", ["set", `${a.prop}=${a.value}`, name]);
     case "snapshot.create": {
       const target = a.target ?? "";
       if (!isDsName || !/^[A-Za-z0-9][A-Za-z0-9_.:\-]*$/.test(target)) return fail("invalid args");
-      return exec(`zfs snapshot ${a.recursive ? "-r " : ""}${name}@${target}`);
+      return execArgs("zfs", ["snapshot", ...(a.recursive ? ["-r"] : []), `${name}@${target}`]);
     }
     case "snapshot.destroy":
       if (!isSnap) return fail("invalid snapshot");
-      return exec(`zfs destroy ${name}`);
+      return execArgs("zfs", ["destroy", name]);
     case "snapshot.rollback":
       if (!isSnap) return fail("invalid snapshot");
-      return exec(`zfs rollback -r ${name}`);
+      return execArgs("zfs", ["rollback", "-r", name]);
     case "snapshot.clone": {
       const target = a.target ?? "";
       if (!isSnap || !NAME_RE.test(target)) return fail("invalid args");
-      return exec(`zfs clone ${name} ${target}`);
+      return execArgs("zfs", ["clone", name, target]);
     }
 
     // ---- pool lifecycle ----
@@ -722,49 +757,48 @@ export async function runZfsAction(a: ZfsAction): Promise<{ ok: boolean; error?:
       const devs = a.devices ?? [];
       if (!isPoolName || !POOL_TYPES.has(type) || devs.length === 0) return fail("invalid args");
       if (!devs.every((d) => DEV_RE.test(d))) return fail("invalid device path");
-      const vdevSpec = type === "stripe" ? devs.join(" ") : `${type} ${devs.join(" ")}`;
-      return exec(`zpool create ${name} ${vdevSpec}`);
+      const vdevArgs = type === "stripe" ? devs : [type, ...devs];
+      return execArgs("zpool", ["create", name, ...vdevArgs]);
     }
     case "pool.destroy":
       if (!isPoolName) return fail("invalid pool");
-      return exec(`zpool destroy ${name}`);
+      return execArgs("zpool", ["destroy", name]);
     case "pool.addvdev": {
       const role = a.vdevRole ?? "";
       const devs = a.devices ?? [];
       if (!isPoolName || !["log", "cache", "spare"].includes(role) || devs.length === 0) return fail("invalid args");
       if (!devs.every((d) => DEV_RE.test(d))) return fail("invalid device path");
-      return exec(`zpool add ${name} ${role} ${devs.join(" ")}`);
+      return execArgs("zpool", ["add", name, role, ...devs]);
     }
 
     // ---- device ops ----
     case "device.replace":
       if (!isPoolName || !a.oldDevice || !a.newDevice) return fail("invalid args");
-      if (!DEV_RE.test(a.newDevice)) return fail("invalid device");
-      return exec(`zpool replace ${name} ${a.oldDevice} ${a.newDevice}`);
+      if (!MEMBER_RE.test(a.oldDevice) || !DEV_RE.test(a.newDevice)) return fail("invalid device");
+      return execArgs("zpool", ["replace", name, a.oldDevice, a.newDevice]);
     case "device.attach":
-      if (!isPoolName || !a.oldDevice || !a.newDevice || !DEV_RE.test(a.newDevice)) return fail("invalid args");
-      return exec(`zpool attach ${name} ${a.oldDevice} ${a.newDevice}`);
+      if (!isPoolName || !a.oldDevice || !a.newDevice) return fail("invalid args");
+      if (!MEMBER_RE.test(a.oldDevice) || !DEV_RE.test(a.newDevice)) return fail("invalid device");
+      return execArgs("zpool", ["attach", name, a.oldDevice, a.newDevice]);
     case "device.detach":
-      if (!isPoolName || !a.device) return fail("invalid args");
-      return exec(`zpool detach ${name} ${a.device}`);
+      if (!isPoolName || !a.device || !MEMBER_RE.test(a.device)) return fail("invalid args");
+      return execArgs("zpool", ["detach", name, a.device]);
     case "device.offline":
-      if (!isPoolName || !a.device) return fail("invalid args");
-      return exec(`zpool offline ${name} ${a.device}`);
+      if (!isPoolName || !a.device || !MEMBER_RE.test(a.device)) return fail("invalid args");
+      return execArgs("zpool", ["offline", name, a.device]);
     case "device.online":
-      if (!isPoolName || !a.device) return fail("invalid args");
-      return exec(`zpool online ${name} ${a.device}`);
+      if (!isPoolName || !a.device || !MEMBER_RE.test(a.device)) return fail("invalid args");
+      return execArgs("zpool", ["online", name, a.device]);
 
     // ---- encryption ----
     case "dataset.loadkey":
       if (!isDsName) return fail("invalid dataset");
-      if (a.passphrase) {
-        const safe = a.passphrase.replace(/'/g, "'\\''");
-        return exec(`printf '%s' '${safe}' | zfs load-key ${name}`);
-      }
-      return exec(`zfs load-key ${name}`);
+      // Pass the passphrase via stdin (never on the command line / through a shell).
+      if (a.passphrase) return execArgs("zfs", ["load-key", name], { input: a.passphrase });
+      return execArgs("zfs", ["load-key", name]);
     case "dataset.unloadkey":
       if (!isDsName) return fail("invalid dataset");
-      return exec(`zfs unload-key ${name}`);
+      return execArgs("zfs", ["unload-key", name]);
 
     // ---- replication (send/receive) ----
     case "replication.run": {
@@ -791,37 +825,48 @@ export async function runZfsAction(a: ZfsAction): Promise<{ ok: boolean; error?:
 }
 
 async function scheduleAction(a: ZfsAction): Promise<{ ok: boolean; error?: string }> {
+  await ensureSchedulesLoaded();
   switch (a.kind) {
     case "schedule.create": {
       if (!a.name || !NAME_RE.test(a.name) || !a.interval || !INTERVAL_MS[a.interval]) return fail("invalid args");
       const id = `sch-${Date.now()}`;
-      mock.schedules.push({
-        id,
-        dataset: a.name,
-        interval: a.interval,
-        keep: Math.max(1, Math.min(365, a.keep ?? 7)),
-        recursive: !!a.recursive,
-        enabled: true,
-        lastRun: null,
-        nextRun: Date.now() + INTERVAL_MS[a.interval],
-      });
+      mock.schedules = [
+        ...mock.schedules,
+        {
+          id,
+          dataset: a.name,
+          interval: a.interval,
+          keep: Math.max(1, Math.min(365, a.keep ?? 7)),
+          recursive: !!a.recursive,
+          enabled: true,
+          lastRun: null,
+          nextRun: Date.now() + INTERVAL_MS[a.interval],
+        },
+      ];
+      await persistSchedules();
       return ok();
     }
     case "schedule.delete":
       mock.schedules = mock.schedules.filter((s) => s.id !== a.id);
+      await persistSchedules();
       return ok();
     case "schedule.toggle": {
       const s = mock.schedules.find((x) => x.id === a.id);
       if (!s) return fail("not found");
-      s.enabled = a.enabled ?? !s.enabled;
+      const enabled = a.enabled ?? !s.enabled;
+      mock.schedules = mock.schedules.map((x) => (x.id === a.id ? { ...x, enabled } : x));
+      await persistSchedules();
       return ok();
     }
     case "schedule.runNow": {
       const s = mock.schedules.find((x) => x.id === a.id);
       if (!s) return fail("not found");
       await runSchedule(s);
-      s.lastRun = Date.now();
-      s.nextRun = Date.now() + INTERVAL_MS[s.interval];
+      const now = Date.now();
+      mock.schedules = mock.schedules.map((x) =>
+        x.id === a.id ? { ...x, lastRun: now, nextRun: now + INTERVAL_MS[x.interval] } : x
+      );
+      await persistSchedules();
       return ok();
     }
     default:
@@ -829,8 +874,22 @@ async function scheduleAction(a: ZfsAction): Promise<{ ok: boolean; error?: stri
   }
 }
 
+// Shell path — used ONLY for the replication pipeline (zfs send | … receive),
+// whose every interpolated part is strictly regex-validated above.
 async function exec(cmd: string): Promise<{ ok: boolean; error?: string }> {
   const { code, stderr } = await run(cmd, { timeoutMs: 30000 });
+  return code === 0 ? ok() : fail(stderr.trim() || "command failed — needs root/sudoers");
+}
+
+// No-shell path — the default for every privileged ZFS action. `file`/`args`
+// reach the kernel verbatim, so user-supplied names/devices cannot be reparsed
+// as shell syntax. `input`, when set, is fed to the child's stdin.
+async function execArgs(
+  file: string,
+  args: string[],
+  opts: { input?: string } = {}
+): Promise<{ ok: boolean; error?: string }> {
+  const { code, stderr } = await runArgs(file, args, { timeoutMs: 30000, input: opts.input });
   return code === 0 ? ok() : fail(stderr.trim() || "command failed — needs root/sudoers");
 }
 

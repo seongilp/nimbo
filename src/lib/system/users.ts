@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import type { SysGroup, SysUser, UsersOverview } from "@/lib/types";
-import { run, USE_MOCK } from "./exec";
+import { run, runArgs, shq as sq, USE_MOCK } from "./exec";
 
 // --------------------------------------------------------------------------
 // Validation & shell escaping
@@ -10,11 +10,6 @@ const NAME_RE = /^[a-z_][a-z0-9_-]{0,31}$/;
 const NOLOGIN_SHELLS = ["/usr/sbin/nologin", "/sbin/nologin", "/bin/false", "/usr/bin/false"];
 const LOGIN_SHELL = "/bin/bash";
 const NOLOGIN_SHELL = "/usr/sbin/nologin";
-
-/** Single-quote escape any value for safe shell interpolation. */
-function sq(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
 
 function validName(name: string): boolean {
   return NAME_RE.test(name);
@@ -264,7 +259,10 @@ async function createUser(a: Extract<UserAction, { kind: "user.create" }>): Prom
   if (create.code !== 0) return privFail(create.stderr);
 
   if (password) {
-    const pw = await run(`echo ${sq(`${a.name}:${password}`)} | chpasswd`, { timeoutMs: 15000 });
+    if (/[\r\n\0]/.test(password)) return fail("비밀번호에 줄바꿈 문자를 포함할 수 없습니다.");
+    // Feed `user:password` to chpasswd over stdin so a newline in the password
+    // can never inject an extra account record (e.g. root:attacker).
+    const pw = await runArgs("chpasswd", [], { input: `${a.name}:${password}\n`, timeoutMs: 15000 });
     if (pw.code !== 0) return privFail(pw.stderr);
   }
   if (groups.length > 0) {
@@ -292,11 +290,12 @@ async function deleteUser(name: string): Promise<ActionResult> {
 async function setPassword(name: string, password: string): Promise<ActionResult> {
   if (!validName(name)) return fail("잘못된 사용자 이름입니다.");
   if (!password) return fail("비밀번호를 입력하세요.");
+  if (/[\r\n\0]/.test(password)) return fail("비밀번호에 줄바꿈 문자를 포함할 수 없습니다.");
   if (USE_MOCK) {
     if (!state.users.some((u) => u.name === name)) return fail("사용자를 찾을 수 없습니다.");
     return ok();
   }
-  const res = await run(`echo ${sq(`${name}:${password}`)} | chpasswd`, { timeoutMs: 15000 });
+  const res = await runArgs("chpasswd", [], { input: `${name}:${password}\n`, timeoutMs: 15000 });
   if (res.code !== 0) return privFail(res.stderr);
   return ok();
 }

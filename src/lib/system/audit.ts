@@ -1,7 +1,16 @@
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+
 import type { AuditEntry, AuditOverview } from "@/lib/types";
 import { run, USE_MOCK } from "./exec";
 
 const MAX_ENTRIES = 500;
+
+// Persist Nimbo's own audit events (logins, ZFS/backup actions) to disk so they
+// survive a service restart. OS login history is already durable via wtmp.
+const AUDIT_FILE =
+  process.env.NIMBO_AUDIT_FILE ??
+  path.join(path.dirname(process.env.NIMBO_AUTH_FILE ?? "/etc/nimbo/users.json"), "audit.jsonl");
 
 let counter = 0;
 
@@ -100,15 +109,52 @@ async function readLoginHistory(): Promise<AuditEntry[]> {
 }
 
 // --------------------------------------------------------------------------
+// Persistence (real mode only) — append-only JSONL so concurrent writers and
+// restarts never clobber prior history.
+// --------------------------------------------------------------------------
+async function readPersisted(): Promise<AuditEntry[]> {
+  try {
+    const raw = await readFile(AUDIT_FILE, "utf8");
+    const rows = raw
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => {
+        try {
+          return JSON.parse(l) as AuditEntry;
+        } catch {
+          return null;
+        }
+      })
+      .filter((e): e is AuditEntry => e !== null);
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+async function persistEntry(entry: AuditEntry): Promise<void> {
+  if (USE_MOCK) return;
+  try {
+    await mkdir(path.dirname(AUDIT_FILE), { recursive: true });
+    await appendFile(AUDIT_FILE, JSON.stringify(entry) + "\n", "utf8");
+  } catch {
+    // best-effort; the in-memory copy still serves this session
+  }
+}
+
+// --------------------------------------------------------------------------
 // Overview
 // --------------------------------------------------------------------------
 export async function getAuditOverview(): Promise<AuditOverview> {
   if (USE_MOCK) return { entries, isMock: true };
-  // Merge in-app action log (ZFS/backup/login events recorded this session)
-  // with real OS login history, newest first, de-duplicated by id.
-  const history = await readLoginHistory().catch(() => []);
+  // Merge the durable on-disk Nimbo log + this session's in-memory entries with
+  // real OS login history, newest first, de-duplicated by id.
+  const [persisted, history] = await Promise.all([
+    readPersisted().catch(() => []),
+    readLoginHistory().catch(() => []),
+  ]);
   const merged = new Map<string, AuditEntry>();
-  for (const e of [...entries, ...history]) merged.set(e.id, e);
+  for (const e of [...persisted, ...entries, ...history]) merged.set(e.id, e);
   const all = [...merged.values()].sort((a, b) => b.ts - a.ts).slice(0, MAX_ENTRIES);
   return { entries: all, isMock: false };
 }
@@ -133,6 +179,7 @@ export function logAudit(
     ip,
   };
   entries = [entry, ...entries].slice(0, MAX_ENTRIES);
+  void persistEntry(entry);
 }
 
 // --------------------------------------------------------------------------
@@ -146,6 +193,10 @@ export async function runAuditAction(a: AuditAction): Promise<{ ok: boolean; err
   switch (a.kind) {
     case "audit.clear": {
       entries = [];
+      if (!USE_MOCK) {
+        await mkdir(path.dirname(AUDIT_FILE), { recursive: true }).catch(() => {});
+        await writeFile(AUDIT_FILE, "", "utf8").catch(() => {});
+      }
       return { ok: true };
     }
     default:

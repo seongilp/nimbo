@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { Minus, X, Maximize2 } from "lucide-react";
 
 import { APP_MAP } from "./app-registry";
@@ -43,6 +43,28 @@ export function Window({ win }: { win: WindowState }) {
   } | null>(null);
 
   const isFocused = focusedId === win.id;
+
+  // Move keyboard focus to the window when it first opens so screen-reader and
+  // keyboard users land inside the dialog (and Escape works immediately).
+  useEffect(() => {
+    rootRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  // Escape closes the window — but only from the chrome / non-editable content,
+  // so typing Escape inside an input or an open menu (which calls preventDefault)
+  // never destroys unsaved work.
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    const t = e.target as HTMLElement;
+    const editable =
+      t.tagName === "INPUT" ||
+      t.tagName === "TEXTAREA" ||
+      t.tagName === "SELECT" ||
+      t.isContentEditable;
+    if (editable) return;
+    e.stopPropagation();
+    close(win.id);
+  }
 
   function onHeaderPointerDown(e: React.PointerEvent) {
     if (win.maximized) return;
@@ -124,8 +146,12 @@ export function Window({ win }: { win: WindowState }) {
   return (
     <div
       ref={rootRef}
+      role="dialog"
+      aria-label={win.title}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
       className={cn(
-        "animate-win-open shadow-window absolute flex flex-col overflow-hidden border border-black/5 bg-card dark:border-white/10",
+        "animate-win-open shadow-window absolute flex flex-col overflow-hidden border border-black/5 bg-card outline-none dark:border-white/10",
         win.maximized ? "rounded-2xl" : "rounded-2xl"
       )}
       style={{
@@ -160,7 +186,7 @@ export function Window({ win }: { win: WindowState }) {
               "flex size-3 items-center justify-center rounded-full bg-[#FF5F57] transition-colors",
               !isFocused && "bg-muted-foreground/30"
             )}
-            aria-label="Close"
+            aria-label="닫기"
           >
             <X className="size-2 text-black/50 opacity-0 group-hover/title:opacity-100" strokeWidth={3} />
           </button>
@@ -170,7 +196,7 @@ export function Window({ win }: { win: WindowState }) {
               "flex size-3 items-center justify-center rounded-full bg-[#FEBC2E] transition-colors",
               !isFocused && "bg-muted-foreground/30"
             )}
-            aria-label="Minimize"
+            aria-label="최소화"
           >
             <Minus className="size-2 text-black/50 opacity-0 group-hover/title:opacity-100" strokeWidth={3} />
           </button>
@@ -180,7 +206,7 @@ export function Window({ win }: { win: WindowState }) {
               "flex size-3 items-center justify-center rounded-full bg-[#28C840] transition-colors",
               !isFocused && "bg-muted-foreground/30"
             )}
-            aria-label="Maximize"
+            aria-label="최대화"
           >
             <Maximize2 className="size-[7px] text-black/50 opacity-0 group-hover/title:opacity-100" strokeWidth={3} />
           </button>

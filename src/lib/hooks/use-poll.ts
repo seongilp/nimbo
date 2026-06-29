@@ -41,11 +41,44 @@ export function usePoll<T>(url: string, intervalMs = 2000): PollState<T> {
     active.current = true;
     setLoading(true);
     fetchOnce();
-    if (intervalMs <= 0) return () => { active.current = false; };
-    const id = setInterval(fetchOnce, intervalMs);
+
+    // One-shot / manual mode — fetch once, never set up an interval.
+    if (intervalMs <= 0) {
+      return () => {
+        active.current = false;
+      };
+    }
+
+    let id: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (id !== null) {
+        clearInterval(id);
+        id = null;
+      }
+    };
+    const start = () => {
+      if (id === null) id = setInterval(fetchOnce, intervalMs);
+    };
+
+    // Pause polling while the tab is backgrounded so we stop hammering the API
+    // (and keep NAS disks from spinning up needlessly); resume + refetch
+    // immediately when it becomes visible again so data is never stale.
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        fetchOnce();
+        start();
+      }
+    };
+
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       active.current = false;
-      clearInterval(id);
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [fetchOnce, intervalMs]);
 

@@ -65,7 +65,10 @@ export function MenuBar() {
     <div className="glass-bar no-select absolute inset-x-0 top-0 z-[9999] flex h-[30px] items-center justify-between border-b border-border/50 px-3 text-foreground/90">
       <div className="flex items-center gap-3">
         <DropdownMenu>
-          <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[13px] font-semibold outline-none hover:bg-foreground/5">
+          <DropdownMenuTrigger
+            aria-label="Nimbo 메뉴"
+            className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[13px] font-semibold outline-none hover:bg-foreground/5"
+          >
             <Cloud className="size-4 fill-primary/20 text-primary" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="max-h-[82vh] w-64 overflow-y-auto">
@@ -172,7 +175,7 @@ export function MenuBar() {
         <button
           onClick={togglePalette}
           className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-foreground/70 hover:bg-foreground/5"
-          aria-label="Open command palette"
+          aria-label="명령 팔레트 열기"
         >
           <Search className="size-3" />
           <kbd className="font-mono text-[10px]">⌘K</kbd>
@@ -180,7 +183,7 @@ export function MenuBar() {
         <button
           onClick={toggle}
           className="flex size-5 items-center justify-center rounded-md hover:bg-foreground/5"
-          aria-label="Toggle theme"
+          aria-label={theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
         >
           {theme === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
         </button>

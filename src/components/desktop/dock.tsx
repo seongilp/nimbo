@@ -47,6 +47,7 @@ export function Dock() {
         </div>
 
         <button
+          aria-label={app.name}
           onMouseEnter={() => setHovered(app.id)}
           onMouseLeave={() => setHovered(null)}
           onClick={() => activate(app.id)}

@@ -689,7 +689,8 @@ const DEV_RE = /^\/dev\/[A-Za-z0-9._\-/]+$/;
 // GUID. Must start alphanumeric so it can never be read as a CLI flag.
 const MEMBER_RE = /^[A-Za-z0-9][A-Za-z0-9._:\-/]*$/;
 const POOL_TYPES = new Set(["mirror", "raidz1", "raidz2", "raidz3", "stripe"]);
-const HOST_RE = /^[A-Za-z0-9._@\-]+$/;
+// Must start alphanumeric so a remote host can never be read by `ssh` as a flag.
+const HOST_RE = /^[A-Za-z0-9][A-Za-z0-9._@\-]*$/;
 
 function ok() {
   return { ok: true as const };

@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -12,10 +13,21 @@ import { mockListing } from "./mock";
  * separated) to match the real share layout. Anything outside — including via a
  * symlink that points out of an allowed root — is rejected.
  */
+// Canonicalise each root through realpath so a root that is itself a symlink
+// (e.g. /volume1 -> /mnt/pool/volume1) still matches the realpath'd request
+// path below. Falls back to the resolved path when the root does not exist.
+function canonicalRoot(r: string): string {
+  const resolved = path.resolve(r);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
 const ALLOWED_ROOTS = (process.env.NAS_FILE_ROOTS ?? "/srv:/mnt:/home:/volume1")
   .split(":")
   .filter(Boolean)
-  .map((r) => path.resolve(r));
+  .map(canonicalRoot);
 
 function isAllowed(target: string): boolean {
   const resolved = path.resolve(target);

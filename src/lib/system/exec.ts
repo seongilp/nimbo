@@ -110,6 +110,9 @@ export async function runArgs(
     child.on("error", (e: Error) => finish({ stdout, stderr: stderr || e.message, code: 1 }));
     child.on("close", (code: number | null) => finish({ stdout, stderr, code: code ?? 1 }));
 
+    // Guard against EPIPE if the child closes stdin early (e.g. large input to a
+    // command that stops reading) — an unhandled stream error would crash the process.
+    child.stdin.on("error", () => {});
     if (opts.input != null) child.stdin.write(opts.input);
     child.stdin.end();
   });

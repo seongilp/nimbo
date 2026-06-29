@@ -110,7 +110,17 @@ sudo systemctl reload caddy
 - **LAN 전용, 도메인 없음** → `tls internal` (Caddy 자체 CA) 또는 DNS 챌린지로 진짜 인증서
 - 앱의 **Certificates 앱**이 인증서 발급/자체서명/가져오기와 HTTP/HTTPS 포트 정책을 관리한다 (실제 TLS 종료는 이 프록시가 수행).
 
-nginx를 이미 쓴다면 Caddy 대신 `proxy_pass http://127.0.0.1:3000;` 한 줄이면 된다.
+nginx를 이미 쓴다면 Caddy 대신 아래처럼 프록시한다. `X-Forwarded-Proto`를 꼭 전달해야
+세션 쿠키에 `Secure` 플래그가 붙는다(HSTS·보안 헤더는 nginx `add_header`로 별도 설정).
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
 
 > **프록시 뒤 바인딩(중요).** 프록시를 쓸 때는 앱을 반드시 `HOSTNAME=127.0.0.1`로
 > 바인딩해 외부에서 직접 닿지 못하게 하라. 앱은 클라이언트 IP를(쿠키 `Secure` 판정과

@@ -71,6 +71,13 @@ if ! id "$SVC_USER" >/dev/null 2>&1; then
   useradd -r -m -d "/home/$SVC_USER" -s /bin/bash "$SVC_USER" 2>/dev/null || useradd -r -s /usr/sbin/nologin "$SVC_USER"
 fi
 getent group docker >/dev/null 2>&1 && usermod -aG docker "$SVC_USER" || true
+# ⚠ 보안 주의 (BLANKET NOPASSWD): 아래 줄은 nimbo 계정에 *모든* 명령의 무암호 sudo를
+#   부여한다. 이는 레거시 읽기 경로(exec.ts의 `sudo -n bash -c '<cmd>'`)가 임의의 셸
+#   명령을 필요로 하기 때문에 호환성 목적으로 유지된다. 즉, 앱을 탈취당하면 곧 root다.
+#   하드닝 경로: 모든 권한 명령을 argv(`sudo -n <binary> <args>`, no shell)로 옮긴 뒤
+#   deploy/nimbo.sudoers(최소권한 Cmnd_Alias 화이트리스트)로 교체하라. 마이그레이션
+#   진행 중이라 install.sh는 기본적으로 좁은 sudoers를 설치하지 않는다(레거시 읽기
+#   경로가 깨짐). 자세한 내용은 deploy/nimbo.sudoers 헤더 참고.
 echo "$SVC_USER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/nimbo
 chmod 440 /etc/sudoers.d/nimbo
 visudo -cf /etc/sudoers.d/nimbo >/dev/null || { rm -f /etc/sudoers.d/nimbo; echo "sudoers 검증 실패" >&2; exit 1; }
@@ -110,6 +117,16 @@ grep -q "^NIMBO_SECRET=" "$ENV_DIR/nimbo.env" || \
 
 chown -R "$SVC_USER:$SVC_USER" "$APP_DIR" "$ENV_DIR"
 
+# ── secret/key file permissions (하드닝) ──────────────────────────────────
+# nimbo.env는 NIMBO_SECRET(세션 서명 키)를 담는다 → 소유자만 읽기.
+chmod 600 "$ENV_DIR/nimbo.env"          # -rw-------  nimbo nimbo
+# /etc/nimbo: world-readable 금지. nimbo가 소유(앱이 setup.json 등을 여기 기록).
+# root:nimbo 750으로 두면 nimbo 그룹에 쓰기 권한이 없어 setup 마법사가 깨지므로,
+# 'nimbo 소유 + 750'(others 차단)을 택한다.
+chmod 750 "$ENV_DIR"                    # drwxr-x---  nimbo nimbo
+# TLS 개인키가 들어가는 certs/ → nimbo 전용 700.
+chmod 700 "$ENV_DIR/certs"              # drwx------  nimbo nimbo
+
 # ── systemd (runs as the nimbo account) ──────────────────────────────────
 echo "==> systemd 유닛 설치 (User=$SVC_USER)"
 cp "$SRC/deploy/nimbo.service" /etc/systemd/system/nimbo.service
@@ -135,6 +152,14 @@ if [[ -n "$CADDY_HOST" ]]; then
 $local_site {
 $TLS_LINE
   encode zstd gzip
+  # 보안 헤더: HSTS + 클릭재킹/MIME 스니핑 방지 (데스크톱-메타포 UI → frame-ancestors).
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Frame-Options DENY
+    X-Content-Type-Options nosniff
+    Referrer-Policy no-referrer
+    Content-Security-Policy "frame-ancestors 'none'"
+  }
   reverse_proxy 127.0.0.1:$PORT
 }
 EOF

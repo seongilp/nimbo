@@ -28,13 +28,14 @@ systemd로 돌리면: Docker가 죽어도 콘솔은 살아있고 → **콘솔이
 
 ```bash
 git clone <repo> nimbo && cd nimbo
-sudo ./deploy/install.sh 3000      # 마지막 인자가 포트 (생략 시 3000)
+sudo ./deploy/install.sh --port 3000      # --port 다음이 포트 (생략 시 3000)
+# HTTPS까지 한 번에:  sudo ./deploy/install.sh --port 3000 --caddy nas.example.com
 ```
 
 `install.sh`가 하는 일:
 1. `npm ci && npm run build` — `output: 'standalone'` 덕분에 `.next/standalone/server.js` 단일 번들 생성
 2. `/opt/nimbo` 에 번들 + 정적 파일 복사
-3. `/etc/nimbo/nimbo.env` 설정 파일 생성(포트 등)
+3. `/etc/nimbo/nimbo.env` 설정 파일 생성(포트 등) + **`NIMBO_SECRET` 자동 생성**(세션 서명 키). 파일은 `chmod 600`, `certs/`는 `chmod 700`으로 잠근다.
 4. `deploy/nimbo.service` 를 `/etc/systemd/system/` 에 설치하고 `systemctl enable --now`
 
 핵심 유닛 설정 (`deploy/nimbo.service`):
@@ -111,14 +112,21 @@ sudo systemctl reload caddy
 
 nginx를 이미 쓴다면 Caddy 대신 `proxy_pass http://127.0.0.1:3000;` 한 줄이면 된다.
 
+> **프록시 뒤 바인딩(중요).** 프록시를 쓸 때는 앱을 반드시 `HOSTNAME=127.0.0.1`로
+> 바인딩해 외부에서 직접 닿지 못하게 하라. 앱은 클라이언트 IP를(쿠키 `Secure` 판정과
+> fail2ban 차단 대상에 쓰이는) `X-Forwarded-For` / `X-Forwarded-Proto` 헤더에서 읽는다.
+> 이 헤더는 **신뢰된 프록시만** 설정해야 한다. 앱이 직접 노출되면 클라이언트가 헤더를
+> 위조해 차단을 회피하거나 무고한 IP를 차단시킬 수 있다. Caddy/nginx는 들어오는
+> `X-Forwarded-*`를 덮어쓰므로(프록시가 직접 닿는 유일한 경로일 때) 안전하다.
+
 ---
 
 ## 4. 권한(중요)
 
 콘솔은 디스크·ZFS·systemd·방화벽·사용자를 건드리므로 **권한**이 필요하다.
 
-- **기본**: 유닛이 `User=root`로 실행 → 바로 동작. 단, **반드시 인증 프록시 뒤 또는 신뢰 네트워크에서만** 노출할 것.
-- **하드닝(선택)**: 전용 유저 `nasconsole`로 실행하고 `deploy/nimbo.sudoers`로 특정 명령만 NOPASSWD 허용. 이 경우 코드가 권한 명령에 `sudo`를 붙이도록 설정해야 한다.
+- **기본**: 유닛이 전용 `nimbo` 계정(무암호 sudo)으로 실행된다. `install.sh`가 호환성을 위해 `nimbo`에 blanket `NOPASSWD: ALL`을 부여한다 — 레거시 읽기 경로가 `sudo bash -c`를 쓰기 때문이다. **반드시 인증 프록시 뒤 또는 신뢰 네트워크에서만** 노출할 것.
+- **하드닝(선택)**: `deploy/nimbo.sudoers`로 blanket sudo를 **특정 명령만 NOPASSWD**인 최소권한 화이트리스트로 교체한다. 단, 모든 권한 명령이 argv(`sudo -n <binary> <args>`, no shell)로 실행돼야 동작한다 — 남은 레거시 `bash -c` 읽기 경로를 옮기는 마이그레이션이 진행 중이다. 자세한 내용은 그 파일 헤더 참고.
 - 권한이 없으면 각 API가 안전하게 `"권한 필요"`로 거부한다(시스템을 망가뜨리지 않음).
 
 ---
@@ -133,7 +141,14 @@ docker run -d --name nimbo --restart=always \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /:/host:ro -v /volume1:/volume1 \
   -e NAS_MOCK=0 -e PORT=3000 \
+  -e NIMBO_SECRET=$(openssl rand -hex 32) \
   nimbo:latest
 ```
+
+> **`NIMBO_SECRET`은 필수다.** 프로덕션에서 이 값이 비어 있으면 앱은 **fail-closed** —
+> 세션을 신뢰하지 않아(모든 요청을 미인증으로 처리) 로그인이 불가능하다. systemd
+> 설치는 `install.sh`가 자동 생성하지만, Docker는 위처럼 직접 주입해야 한다. 단,
+> 컨테이너를 재생성할 때마다 `$(openssl rand -hex 32)`가 새 값을 만들어 기존 세션이
+> 무효화되므로, 안정적으로 쓰려면 한 번 생성한 값을 고정해 두는 편이 좋다.
 
 `--restart=always`로 컨테이너 크래시는 복구되지만, **Docker 데몬 자체가 죽으면 못 살린다.** 그래서 프로덕션은 systemd-native를 권장한다. (Docker 데몬은 보통 systemd가 관리하므로, 콘솔을 systemd로 두면 Docker까지 콘솔이 관리·재시작할 수 있다.)

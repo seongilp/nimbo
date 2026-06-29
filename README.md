@@ -100,12 +100,19 @@ it shells out to (`lsblk`, `smartctl`, `docker`). Run it as a user with the
 appropriate access (e.g. in the `docker` group, with sudo rules for `smartctl`),
 behind a reverse proxy with authentication.
 
+**Bind to `127.0.0.1` behind the proxy.** Set `HOSTNAME=127.0.0.1` so the app is
+only reachable through the proxy. The app reads the client IP from the
+`X-Forwarded-For` / `X-Forwarded-Proto` headers (used for the `Secure` cookie
+flag and the fail2ban ban target), so **only the trusted proxy may set them** —
+if the app is exposed directly, those headers are spoofable.
+
 ### Environment variables
 
 | Var | Default | Purpose |
 | --- | --- | --- |
 | `NAS_MOCK` | unset | `1` forces demo data |
 | `NAS_FILE_ROOTS` | `/` | Colon-separated roots File Station may read |
+| `NIMBO_SECRET` | unset | Session-signing key. **Required in production** — without it the app fails closed (sessions disabled, no login). `install.sh` auto-generates one; set it yourself for Docker (`-e NIMBO_SECRET=$(openssl rand -hex 32)`). |
 
 ## Security notes
 

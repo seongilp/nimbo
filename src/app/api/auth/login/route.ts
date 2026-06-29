@@ -11,6 +11,16 @@ function clientIp(req: Request): string {
   return req.headers.get("x-real-ip") || "unknown";
 }
 
+// Behind Caddy the proxy→app hop is plain HTTP, so new URL(request.url).protocol
+// is always "http:". Honour the proxy's x-forwarded-proto so the session cookie
+// still gets the Secure flag on HTTPS deployments. (Only the trusted proxy may
+// set this header — see deploy/nimbo.env.example / DEPLOYMENT.md.)
+function isHttps(req: Request): boolean {
+  const proto = (req.headers.get("x-forwarded-proto") || "").split(",")[0].trim().toLowerCase();
+  if (proto) return proto === "https";
+  return new URL(req.url).protocol === "https:";
+}
+
 export async function POST(request: Request) {
   try {
     const { username, password } = (await request.json()) as { username?: string; password?: string };
@@ -28,7 +38,7 @@ export async function POST(request: Request) {
     res.cookies.set("nimbo_session", result.token, {
       httpOnly: true,
       sameSite: "lax",
-      secure: new URL(request.url).protocol === "https:",
+      secure: isHttps(request),
       path: "/",
       maxAge: 8 * 60 * 60,
     });

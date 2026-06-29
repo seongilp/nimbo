@@ -16,6 +16,7 @@ import {
   Lock,
   Users,
   RefreshCw,
+  TriangleAlert,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +41,7 @@ function fileIcon(entry: FileEntry) {
 
 export function FileStation() {
   const [path, setPath] = useState("/");
-  const { data: listing, loading, refresh } = usePoll<DirListing>(
+  const { data: listing, loading, error, refresh } = usePoll<DirListing>(
     `/api/files?path=${encodeURIComponent(path)}`,
     0
   );
@@ -132,6 +133,19 @@ export function FileStation() {
               {Array.from({ length: 6 }).map((_, i) => (
                 <Skeleton key={i} className="h-9 w-full" />
               ))}
+            </div>
+          ) : error && !listing ? (
+            <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
+              <div className="flex size-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                <TriangleAlert className="size-5" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium">폴더를 불러오지 못했습니다</p>
+                <p className="max-w-xs text-xs text-muted-foreground">{error}</p>
+              </div>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={refresh}>
+                <RefreshCw className="size-3.5" /> 다시 시도
+              </Button>
             </div>
           ) : (
             <table className="w-full text-sm">

@@ -83,8 +83,6 @@ export function SetupWizard({ initial, onComplete }: { initial: SetupConfig; onC
             <Field title="관리자 계정" desc="콘솔에 로그인할 관리자 계정을 만듭니다.">
               <Label>계정 이름</Label>
               <Input value={cfg.adminUser} onChange={(e) => set("adminUser", e.target.value)} placeholder="admin" autoFocus />
-              <Label>비밀번호</Label>
-              <Input type="password" placeholder="강력한 비밀번호" />
               <p className="text-xs text-muted-foreground">소문자/숫자/언더스코어, 32자 이내.</p>
             </Field>
           )}

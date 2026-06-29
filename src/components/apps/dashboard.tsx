@@ -11,7 +11,9 @@ import {
   KeyRound,
   MemoryStick,
   Network,
+  RefreshCw,
   Server,
+  ServerCrash,
   ShieldCheck,
   Thermometer,
 } from "lucide-react";
@@ -19,6 +21,7 @@ import {
 import { RadialGauge } from "@/components/charts/radial-gauge";
 import { Sparkline } from "@/components/charts/sparkline";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { usePoll } from "@/lib/hooks/use-poll";
@@ -226,7 +229,11 @@ const SMART_LABEL: Record<DiskInfo["smartStatus"], string> = {
 // ---------------------------------------------------------------------------
 
 export function Dashboard() {
-  const { data: overview } = usePoll<SystemOverview>("/api/overview", 3000);
+  const {
+    data: overview,
+    error: overviewError,
+    refresh: refreshOverview,
+  } = usePoll<SystemOverview>("/api/overview", 3000);
   const { data: disks } = usePoll<DiskInfo[]>("/api/storage", 5000);
   const { data: zfs } = usePoll<ZfsOverview>("/api/zfs", 5000);
   const { data: containers } = usePoll<ContainerInfo[]>("/api/docker", 5000);
@@ -273,6 +280,26 @@ export function Dashboard() {
   const services = admin?.services ?? [];
   const activeServices = services.filter((s) => s.active === "active").length;
   const failedServices = services.filter((s) => s.active === "failed");
+
+  // The overview endpoint is the dashboard's core data source. If it has never
+  // loaded and is currently erroring, the widgets can only show "—" forever — so
+  // surface a real error state with a retry instead of a perpetual "연결 중…".
+  if (!overview && overviewError) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 bg-background p-8 text-center">
+        <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+          <ServerCrash className="size-6" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold">시스템 정보를 불러오지 못했습니다</p>
+          <p className="max-w-xs text-xs text-muted-foreground">{overviewError}</p>
+        </div>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={refreshOverview}>
+          <RefreshCw className="size-3.5" /> 다시 시도
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col bg-background">

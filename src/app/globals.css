@@ -229,3 +229,56 @@
 .animate-dock-pop {
   animation: dock-pop 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+/* ---- Landing hero animations ---- */
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(28px) rotateX(9deg) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotateX(0) scale(1);
+  }
+}
+.animate-hero-rise {
+  animation: hero-rise 0.95s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+.animate-float {
+  animation: float-y 6s ease-in-out infinite;
+}
+
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-chip-in {
+  animation: chip-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Respect users who prefer less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-hero-rise,
+  .animate-float,
+  .animate-chip-in,
+  .animate-win-open,
+  .animate-dock-pop {
+    animation: none !important;
+  }
+}

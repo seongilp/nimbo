@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { InstallBlock } from "./install-block";
+import { DesktopHero } from "./desktop-hero";
 
 export const metadata: Metadata = {
   title: "Nimbo — 당신만의 클라우드, 당신의 서버에",
@@ -174,34 +175,11 @@ function Logo({ size = 32 }: { size?: number }) {
   );
 }
 
-function BrowserFrame({
-  children,
-  label = "nimbo.local",
-}: {
-  children: React.ReactNode;
-  label?: string;
-}) {
-  return (
-    <div className="shadow-window overflow-hidden rounded-2xl border border-white/10 bg-card">
-      <div className="flex items-center gap-2 border-b border-white/10 bg-background/60 px-4 py-2.5">
-        <span className="size-3 rounded-full bg-red-500/80" />
-        <span className="size-3 rounded-full bg-amber-500/80" />
-        <span className="size-3 rounded-full bg-emerald-500/80" />
-        <div className="mx-auto flex items-center gap-1.5 rounded-md border border-white/10 bg-background/70 px-3 py-1 text-[11px] text-muted-foreground">
-          <Lock className="size-3" />
-          {label}
-        </div>
-      </div>
-      {children}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 
 export default function LandingPage() {
   return (
-    <main className="desktop-wallpaper h-dvh overflow-y-auto text-foreground">
+    <main className="desktop-wallpaper h-dvh overflow-x-hidden overflow-y-auto text-foreground">
       {/* Top nav */}
       <header className="sticky top-0 z-30 border-b border-white/10 glass-bar">
         <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8">
@@ -237,14 +215,8 @@ export default function LandingPage() {
       {/* Hero */}
       <section
         id="top"
-        className="relative mx-auto max-w-6xl px-5 pb-10 pt-20 text-center sm:px-8 sm:pt-28"
+        className="relative mx-auto max-w-6xl px-5 pb-10 pt-16 text-center sm:px-8 sm:pt-24"
       >
-        {/* glow */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 -z-10 mx-auto h-[420px] max-w-3xl rounded-full bg-primary/20 blur-[120px]"
-        />
-
         <div className="mx-auto flex size-20 items-center justify-center rounded-[26%] bg-gradient-to-b from-[#3B82F6] to-[#2563EB] text-white shadow-icon ring-1 ring-white/15">
           <img src="/logo.svg" alt="" width={56} height={56} className="rounded-[20%]" />
         </div>
@@ -265,7 +237,7 @@ export default function LandingPage() {
         <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground">
           Linux 서버를 NAS처럼 관리하세요. 파일 · ZFS 스토리지 · 백업 · 컨테이너,
           그리고 그 이상을 하나의 아름다운 콘솔에서.
-          <br className="hidden sm:block" />
+          <br />
           <span className="text-foreground/80">
             Manage a Linux server like a NAS — files, ZFS storage, backups,
             containers &amp; more, from one beautiful console.
@@ -291,18 +263,8 @@ export default function LandingPage() {
           </a>
         </div>
 
-        {/* Hero screenshot */}
-        <div className="mx-auto mt-16 max-w-5xl">
-          <BrowserFrame>
-            <img
-              src="/screenshots/desktop.png"
-              alt="Nimbo 데스크톱 콘솔"
-              width={2560}
-              height={1600}
-              className="block w-full"
-            />
-          </BrowserFrame>
-        </div>
+        {/* Live desktop hero */}
+        <DesktopHero />
       </section>
 
       {/* Features */}

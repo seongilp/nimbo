@@ -66,12 +66,38 @@
   .copy{margin-left:auto;flex:none;border:1px solid var(--border);background:#0a0f1c;color:var(--muted);
     border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer}
   .copy:hover{color:var(--fg)}
-  /* mockup */
-  .mock{margin:54px auto 0;max-width:1000px;border-radius:16px;overflow:hidden;
-    border:1px solid var(--border);box-shadow:0 40px 90px -30px rgba(0,0,0,.8)}
-  .mock .bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#0d1424;border-bottom:1px solid var(--border)}
-  .mock .bar i{width:11px;height:11px;border-radius:50%;display:inline-block}
-  .mock img{display:block;width:100%}
+  /* live desktop hero */
+  .scene{position:relative;max-width:1000px;margin:48px auto 0}
+  .scene .glow{position:absolute;inset:-12px 28px 16px 28px;z-index:-1;border-radius:44px;
+    background:radial-gradient(60% 60% at 50% 38%, rgba(59,130,246,.38), transparent 70%);filter:blur(72px)}
+  .frame{border-radius:16px;overflow:hidden;border:1px solid var(--border);
+    box-shadow:0 40px 90px -30px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.07);
+    animation:hero-rise .95s cubic-bezier(.16,1,.3,1) both}
+  .frame img{display:block;width:100%}
+  .chip{position:absolute;background:rgba(17,24,39,.82);backdrop-filter:blur(16px) saturate(1.2);
+    -webkit-backdrop-filter:blur(16px) saturate(1.2);border:1px solid var(--border);border-radius:14px;
+    box-shadow:0 20px 50px -16px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.06);text-align:left;
+    animation:chip-in .7s cubic-bezier(.16,1,.3,1) both, float-y 6s ease-in-out .7s infinite}
+  .chip-toast{left:-14px;top:44px;display:flex;align-items:center;gap:12px;padding:10px 14px}
+  .chip-toast .badge{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;flex:none;
+    background:linear-gradient(180deg,#34d399,#16a34a);color:#fff;font-weight:700;box-shadow:0 6px 14px -4px rgba(0,0,0,.5)}
+  .chip-toast b{font-size:13px;display:block;line-height:1.2}
+  .chip-toast small{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);display:block;margin-top:3px}
+  .chip-sys{right:-14px;top:24%;width:182px;padding:14px}
+  .chip-sys .h{font-size:11px;font-weight:600;color:var(--muted)}
+  .chip-sys .g{margin-top:11px}
+  .chip-sys .gl{display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px}
+  .chip-sys .gl span:last-child{color:#cbd5e1}
+  .chip-sys .bar{height:6px;border-radius:999px;background:#ffffff1a;overflow:hidden}
+  .chip-sys .bar i{display:block;height:100%;border-radius:999px}
+  .chip-zfs{left:-12px;bottom:26%;display:inline-flex;align-items:center;gap:8px;padding:8px 14px;font-size:12px;border-radius:999px}
+  .chip-zfs .dot{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55eb0;flex:none}
+  .chip-zfs b{font-weight:600}.chip-zfs .muted{color:var(--muted)}
+  @media(max-width:900px){.chip{display:none}}
+  @keyframes hero-rise{from{opacity:0;transform:translateY(26px) scale(.98)}to{opacity:1;transform:none}}
+  @keyframes float-y{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
+  @keyframes chip-in{from{opacity:0;transform:translateY(14px) scale(.92)}to{opacity:1;transform:none}}
+  @media(prefers-reduced-motion:reduce){.frame,.chip{animation:none!important}}
   /* sections */
   section{padding:70px 0}
   .stitle{text-align:center;font-size:32px;font-weight:800;letter-spacing:-.02em}
@@ -139,9 +165,25 @@
     <a class="btn btn-ghost" href="#deploy">배포 가이드</a>
   </div>
 
-  <div class="mock">
-    <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
-    <img src="screenshots/desktop.png" alt="Nimbo desktop"/>
+  <div class="scene">
+    <div class="glow"></div>
+    <div class="frame"><img src="screenshots/desktop.png" alt="Nimbo desktop"/></div>
+
+    <div class="chip chip-toast">
+      <div class="badge">✓</div>
+      <div><b>스냅샷 생성 완료</b><small>tank/photos@auto-0628</small></div>
+    </div>
+
+    <div class="chip chip-sys">
+      <div class="h">시스템</div>
+      <div class="g"><div class="gl"><span>CPU</span><span>14%</span></div><div class="bar"><i style="width:14%;background:linear-gradient(90deg,#38bdf8,#2563eb)"></i></div></div>
+      <div class="g"><div class="gl"><span>MEM</span><span>38%</span></div><div class="bar"><i style="width:38%;background:linear-gradient(90deg,#a78bfa,#7c3aed)"></i></div></div>
+      <div class="g"><div class="gl"><span>ZFS</span><span>61%</span></div><div class="bar"><i style="width:61%;background:linear-gradient(90deg,#22d3ee,#0284c7)"></i></div></div>
+    </div>
+
+    <div class="chip chip-zfs">
+      <span class="dot"></span><b>ZFS · tank</b><span class="muted">ONLINE · 9.1 TiB</span>
+    </div>
   </div>
 </div></header>
 

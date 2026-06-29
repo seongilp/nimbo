@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/api/guard";
 
 import { getSetupConfig, runSetupAction, type SetupAction } from "@/lib/system/setup";
 
@@ -16,6 +17,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const gate = await requireAdmin();
+    if (gate instanceof NextResponse) return gate;
     const body = (await request.json()) as SetupAction;
     const result = await runSetupAction(body);
     return NextResponse.json(result, { status: result.ok ? 200 : 400 });

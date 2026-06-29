@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/api/guard";
 
 import { getBackupOverview, runBackupAction, type BackupAction } from "@/lib/system/rsync";
 import { logAudit } from "@/lib/system/audit";
@@ -17,12 +18,14 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const gate = await requireAdmin();
+    if (gate instanceof NextResponse) return gate;
     const body = (await request.json()) as BackupAction;
     if (!body.kind) {
       return NextResponse.json({ ok: false, error: "action kind required" }, { status: 400 });
     }
     const result = await runBackupAction(body);
-    logAudit("admin", `Backup: ${body.kind}`, body.name ?? body.id ?? "-", result.ok ? "success" : "failed");
+    logAudit(gate.user, `Backup: ${body.kind}`, body.name ?? body.id ?? "-", result.ok ? "success" : "failed");
     return NextResponse.json(result, { status: result.ok ? 200 : 400 });
   } catch (err) {
     return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 500 });

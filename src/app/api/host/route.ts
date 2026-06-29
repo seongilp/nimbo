@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/api/guard";
 
 import { getHostConfig, runHostAction, type HostAction } from "@/lib/system/host";
 
@@ -16,6 +17,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const gate = await requireAdmin();
+    if (gate instanceof NextResponse) return gate;
     const body = (await request.json()) as HostAction;
     if (!body.kind) {
       return NextResponse.json({ ok: false, error: "action kind required" }, { status: 400 });

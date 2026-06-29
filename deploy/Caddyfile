@@ -8,6 +8,16 @@
 nas.example.com {
     reverse_proxy 127.0.0.1:3000
     encode zstd gzip
+
+    # Security headers. The app is a desktop-metaphor UI, so clickjacking
+    # matters → deny framing entirely (X-Frame-Options + CSP frame-ancestors).
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Frame-Options DENY
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Content-Security-Policy "frame-ancestors 'none'"
+    }
 }
 
 # ── Option B: LAN only, no public domain (internal HTTPS) ──────────────────
@@ -17,6 +27,13 @@ nas.example.com {
 # https://192.168.1.10 {
 #     tls internal
 #     reverse_proxy 127.0.0.1:3000
+#     header {
+#         Strict-Transport-Security "max-age=31536000; includeSubDomains"
+#         X-Frame-Options DENY
+#         X-Content-Type-Options nosniff
+#         Referrer-Policy no-referrer
+#         Content-Security-Policy "frame-ancestors 'none'"
+#     }
 # }
 
 # ── Option C: Let's Encrypt via DNS challenge (LAN box, real cert) ─────────
@@ -27,4 +44,11 @@ nas.example.com {
 #         dns cloudflare {env.CF_API_TOKEN}
 #     }
 #     reverse_proxy 127.0.0.1:3000
+#     header {
+#         Strict-Transport-Security "max-age=31536000; includeSubDomains"
+#         X-Frame-Options DENY
+#         X-Content-Type-Options nosniff
+#         Referrer-Policy no-referrer
+#         Content-Security-Policy "frame-ancestors 'none'"
+#     }
 # }

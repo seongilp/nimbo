@@ -2,10 +2,14 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Cloud, Loader2, LogIn, User, Lock } from "lucide-react";
+import { Cloud, Loader2, LogIn, Sparkles, User, Lock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+// Public demo build: shows a one-click entry button (auth runs against mock
+// data, so admin/admin succeeds). Set NEXT_PUBLIC_NIMBO_DEMO=1 to enable.
+const DEMO = process.env.NEXT_PUBLIC_NIMBO_DEMO === "1";
 
 function LoginForm() {
   const router = useRouter();
@@ -16,15 +20,14 @@ function LoginForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function doLogin(u: string, p: string) {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: u, password: p }),
       });
       const json = await res.json();
       if (json.ok) {
@@ -40,6 +43,11 @@ function LoginForm() {
     }
   }
 
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    void doLogin(username, password);
+  }
+
   return (
     <div className="desktop-wallpaper flex h-dvh w-full items-center justify-center p-4">
       <form onSubmit={submit} className="glass shadow-window w-full max-w-sm rounded-3xl border border-white/10 p-8">
@@ -49,9 +57,33 @@ function LoginForm() {
           </div>
           <div>
             <h1 className="text-xl font-bold">Nimbo 로그인</h1>
-            <p className="mt-1 text-sm text-muted-foreground">서버 계정으로 로그인하세요</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {DEMO ? "라이브 데모 — 클릭 한 번으로 둘러보기" : "서버 계정으로 로그인하세요"}
+            </p>
           </div>
         </div>
+
+        {DEMO && (
+          <div className="mb-5">
+            <Button
+              type="button"
+              onClick={() => doLogin("admin", "admin")}
+              disabled={busy}
+              className="w-full gap-2 bg-gradient-to-b from-[#3B82F6] to-[#2563EB] text-white hover:brightness-110"
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+              데모로 둘러보기
+            </Button>
+            <p className="mt-2 text-center text-[11px] text-muted-foreground">
+              로그인 없이 바로 체험 · 데모 데이터(변경은 저장되지 않음)
+            </p>
+            <div className="my-4 flex items-center gap-3 text-[11px] text-muted-foreground">
+              <span className="h-px flex-1 bg-border" />
+              또는 계정으로 로그인
+              <span className="h-px flex-1 bg-border" />
+            </div>
+          </div>
+        )}
 
         <div className="space-y-3">
           <div className="relative">

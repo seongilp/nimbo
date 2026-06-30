@@ -1,9 +1,10 @@
 "use client";
 
 import type { ComponentType } from "react";
-import { FolderClosed, HardDrive, Activity, Box, Settings as SettingsIcon, Database, RefreshCw, Bell, ServerCog, UsersRound, ShieldCheck, FolderCog, Package, LayoutDashboard, Lock, BatteryCharging, ScrollText } from "lucide-react";
+import { FolderClosed, HardDrive, Activity, Box, Settings as SettingsIcon, Database, RefreshCw, Bell, ServerCog, UsersRound, ShieldCheck, FolderCog, Package, LayoutDashboard, Lock, BatteryCharging, ScrollText, SquareTerminal } from "lucide-react";
 
 import { FileStation } from "@/components/apps/file-station";
+import { Terminal } from "@/components/apps/terminal";
 import { StorageManager } from "@/components/apps/storage-manager";
 import { ResourceMonitor } from "@/components/apps/resource-monitor";
 import { ContainerManager } from "@/components/apps/container-manager";
@@ -113,6 +114,16 @@ export const APPS: AppDef[] = [
     component: SystemAdmin,
     width: 940,
     height: 640,
+  },
+  {
+    id: "terminal",
+    name: "Terminal",
+    description: "Run shell commands (admin)",
+    icon: SquareTerminal,
+    color: "bg-gradient-to-b from-[#1f2937] to-[#0b0f17]",
+    component: Terminal,
+    width: 820,
+    height: 520,
   },
   {
     id: "packages",

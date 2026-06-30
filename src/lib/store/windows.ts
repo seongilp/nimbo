@@ -71,12 +71,18 @@ export const useWindowStore = create<WindowStore>((set, get) => ({
     const count = get().windows.length;
     const maxX = typeof window !== "undefined" ? window.innerWidth : 1440;
     const maxY = typeof window !== "undefined" ? window.innerHeight : 900;
-    // Clamp to the viewport so windows fit on small/mobile screens.
-    const width = Math.min(opts.width ?? 880, maxX - 16);
-    const height = Math.min(opts.height ?? 580, maxY - TOPBAR_H - DOCK_RESERVE - 16);
-    const cascade = maxX < 700 ? 0 : ((count % 5) - 2);
-    const baseX = Math.max(8, (maxX - width) / 2 + cascade * 36);
-    const baseY = Math.max(TOPBAR_H + 12, (maxY - DOCK_RESERVE - height) / 2 + cascade * 28);
+    const isMobileVp = maxX < 700;
+    // On phones, open every window full-screen (no awkward floating/clipping).
+    // On larger screens, size to the app's preference, clamped + cascaded.
+    const width = isMobileVp ? maxX : Math.min(opts.width ?? 880, maxX - 16);
+    const height = isMobileVp
+      ? maxY - TOPBAR_H - DOCK_RESERVE
+      : Math.min(opts.height ?? 580, maxY - TOPBAR_H - DOCK_RESERVE - 16);
+    const cascade = isMobileVp ? 0 : (count % 5) - 2;
+    const baseX = isMobileVp ? 0 : Math.max(8, (maxX - width) / 2 + cascade * 36);
+    const baseY = isMobileVp
+      ? TOPBAR_H
+      : Math.max(TOPBAR_H + 12, (maxY - DOCK_RESERVE - height) / 2 + cascade * 28);
     const win: WindowState = {
       id: `${appId}-${z}`,
       appId,

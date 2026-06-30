@@ -176,7 +176,7 @@ export function ZfsManager() {
         <ScrollArea className="min-h-0 flex-1">
           {/* POOLS */}
           <TabsContent value="pools" className="m-0 space-y-3 p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-muted-foreground">{pools.length}개 풀 · 사용 가능 디스크 {devices.length}개</p>
               <Button size="sm" className="h-8 gap-1" onClick={() => setDialog({ type: "createPool" })}>
                 <Plus className="size-4" /> 풀 생성
@@ -191,7 +191,7 @@ export function ZfsManager() {
 
           {/* DATASETS */}
           <TabsContent value="datasets" className="m-0 p-4">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-muted-foreground">{datasets.length}개 데이터셋</p>
               <Button size="sm" className="h-8 gap-1" onClick={() => setDialog({ type: "createDataset" })}>
                 <Plus className="size-4" /> 데이터셋 생성

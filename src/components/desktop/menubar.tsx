@@ -16,6 +16,8 @@ import { usePoll } from "@/lib/hooks/use-poll";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { useWindowStore } from "@/lib/store/windows";
 import { useFavoritesStore } from "@/lib/store/favorites";
+import { useWallpaperStore } from "@/lib/store/wallpaper";
+import { WALLPAPERS } from "@/lib/wallpapers";
 import { cn } from "@/lib/utils";
 import type { SystemOverview } from "@/lib/types";
 
@@ -41,6 +43,8 @@ export function MenuBar() {
   const { focusedId, windows, open, taskbarClick, togglePalette, tile, cascade, minimizeAll, closeAll } = useWindowStore();
   const favoriteIds = useFavoritesStore((s) => s.ids);
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
+  const wallpaperId = useWallpaperStore((s) => s.id);
+  const setWallpaper = useWallpaperStore((s) => s.setWallpaper);
   const { data: overview } = usePoll<SystemOverview>("/api/overview", 3000);
 
   function activate(appId: string) {
@@ -121,6 +125,31 @@ export function MenuBar() {
                 </div>
               );
             })}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              배경화면
+            </DropdownMenuLabel>
+            <div className="grid grid-cols-4 gap-1.5 px-2 pb-2">
+              {WALLPAPERS.map((w) => (
+                <button
+                  key={w.id}
+                  aria-label={`배경화면: ${w.label}`}
+                  title={w.label}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setWallpaper(w.id);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className={cn(
+                    "h-8 rounded-md ring-1 transition-all",
+                    wallpaperId === w.id
+                      ? "ring-2 ring-primary ring-offset-1 ring-offset-popover"
+                      : "ring-white/10 hover:ring-white/40"
+                  )}
+                  style={{ background: w.swatch }}
+                />
+              ))}
+            </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={logout}>
               <LogOut className="size-4" /> 로그아웃

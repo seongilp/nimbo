@@ -25,7 +25,10 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  // `max-w-full min-w-0 overflow-x-auto no-scrollbar`: on narrow windows (mobile)
+  // the tab strip scrolls horizontally instead of clipping or pushing siblings
+  // off-screen. No visual change on wide screens (no overflow → no scrollbar).
+  "group/tabs-list inline-flex w-fit max-w-full min-w-0 items-center justify-center overflow-x-auto no-scrollbar rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {

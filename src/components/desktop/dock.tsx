@@ -5,11 +5,17 @@ import { useState } from "react";
 import { APPS } from "./app-registry";
 import { useWindowStore } from "@/lib/store/windows";
 import { useFavoritesStore } from "@/lib/store/favorites";
+import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { cn } from "@/lib/utils";
+
+// Keep the dock to a thumb-friendly handful on phones; the rest stay reachable
+// from the Nimbo menu (top-left).
+const MOBILE_DOCK_LIMIT = 4;
 
 export function Dock() {
   const { windows, open, taskbarClick } = useWindowStore();
   const favoriteIds = useFavoritesStore((s) => s.ids);
+  const isMobile = useIsMobile();
   const [hovered, setHovered] = useState<string | null>(null);
 
   const openIds = new Set(windows.map((w) => w.appId));
@@ -19,7 +25,7 @@ export function Dock() {
   const favoriteSet = new Set(favoriteIds);
   const favoriteApps = APPS.filter((a) => favoriteSet.has(a.id));
   const runningExtras = APPS.filter((a) => !favoriteSet.has(a.id) && openIds.has(a.id));
-  const dockApps = favoriteApps;
+  const dockApps = isMobile ? favoriteApps.slice(0, MOBILE_DOCK_LIMIT) : favoriteApps;
 
   function activate(appId: string) {
     const existing = windows.find((w) => w.appId === appId);

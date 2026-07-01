@@ -38,10 +38,11 @@ export const useWidgetStore = create<WidgetStore>((set, get) => ({
       set({ widgets: next });
       return;
     }
+    // Stack new widgets in a tidy left column so they don't overlap on add.
     const n = cur.length;
     const next: WidgetInstance[] = [
       ...cur,
-      { id: `w${typeof window !== "undefined" ? window.performance.now().toFixed(0) : seq}-${seq++}`, type, x: 32 + (n % 3) * 28, y: 60 + n * 26 },
+      { id: `w${typeof window !== "undefined" ? window.performance.now().toFixed(0) : seq}-${seq++}`, type, x: 24, y: 56 + n * 120 },
     ];
     persist(next);
     set({ widgets: next });

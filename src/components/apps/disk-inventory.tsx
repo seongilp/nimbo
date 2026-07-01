@@ -386,9 +386,9 @@ export function DiskInventory() {
           {data?.isMock && <Badge variant="secondary" className="text-[10px]">demo</Badge>}
         </div>
 
-        <TabsContent value="inventory" className="m-0 min-h-0 flex-1">{list(items, "디스크가 없습니다.")}</TabsContent>
-        <TabsContent value="faults" className="m-0 min-h-0 flex-1">{list(faults, "결함이 있는 디스크가 없습니다. 모두 정상입니다. ✓")}</TabsContent>
-        <TabsContent value="history" className="m-0 min-h-0 flex-1"><HistoryTab /></TabsContent>
+        <TabsContent value="inventory" className="m-0 flex min-h-0 flex-1 flex-col">{list(items, "디스크가 없습니다.")}</TabsContent>
+        <TabsContent value="faults" className="m-0 flex min-h-0 flex-1 flex-col">{list(faults, "결함이 있는 디스크가 없습니다. 모두 정상입니다. ✓")}</TabsContent>
+        <TabsContent value="history" className="m-0 flex min-h-0 flex-1 flex-col"><HistoryTab /></TabsContent>
       </Tabs>
 
       <LocationDialog key={locItem?.disk.stableId ?? "loc-none"} item={locItem} onClose={() => setLocItem(null)} onSaved={refresh} />

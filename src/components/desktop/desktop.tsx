@@ -7,6 +7,7 @@ import { APPS } from "./app-registry";
 import { CommandPalette } from "./command-palette";
 import { Dock } from "./dock";
 import { MenuBar } from "./menubar";
+import { DesktopWidgets } from "./widgets";
 import { SetupWizard } from "./setup-wizard";
 import { Window } from "./window";
 import { useAccent } from "@/lib/hooks/use-accent";
@@ -25,12 +26,16 @@ export function Desktop() {
   useAccent(); // apply persisted accent color on load
 
   const wallpaperId = useWallpaperStore((s) => s.id);
+  const customImage = useWallpaperStore((s) => s.customImage);
   const loadWallpaper = useWallpaperStore((s) => s.load);
   useEffect(() => loadWallpaper(), [loadWallpaper]);
 
   const loadFavorites = useFavoritesStore((s) => s.load);
   useEffect(() => loadFavorites(), [loadFavorites]);
-  const wallpaperBg = wallpaperById(wallpaperId).bg;
+  const wallpaperBg =
+    wallpaperId === "custom" && customImage
+      ? `#0b0f17 url("${customImage}") center / cover no-repeat`
+      : wallpaperById(wallpaperId).bg;
 
   // First-run setup gate.
   const [setup, setSetup] = useState<SetupConfig | null>(null);
@@ -88,6 +93,9 @@ export function Desktop() {
       style={wallpaperBg ? { background: wallpaperBg } : undefined}
     >
       <MenuBar />
+
+      {/* Desktop widgets (behind windows, above wallpaper) */}
+      <DesktopWidgets />
 
       {/* Welcome / empty state */}
       {!hasVisible && (

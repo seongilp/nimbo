@@ -5,6 +5,7 @@ After=network-online.target nimbo.service
 Wants=network-online.target
 # Tie its lifecycle to the main app.
 PartOf=nimbo.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -22,7 +23,6 @@ ExecStart=/usr/bin/node /opt/nimbo-terminal/server.js
 
 Restart=always
 RestartSec=2
-StartLimitIntervalSec=0
 
 StandardOutput=journal
 StandardError=journal

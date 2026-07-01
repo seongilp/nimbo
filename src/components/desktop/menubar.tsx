@@ -66,16 +66,16 @@ export function MenuBar() {
   const focusedApp = focused ? APP_MAP[focused.appId] : null;
 
   return (
-    <div className="glass-bar no-select absolute inset-x-0 top-0 z-[9999] flex h-[30px] items-center justify-between border-b border-border/50 px-3 text-foreground/90">
+    <div className="glass-bar no-select absolute inset-x-0 top-0 z-[9999] flex h-10 items-center justify-between border-b border-border/50 px-4 text-foreground/90">
       <div className="flex items-center gap-3">
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Nimbo 메뉴"
-            className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[13px] font-semibold outline-none hover:bg-foreground/5"
+            className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-sm font-semibold outline-none hover:bg-foreground/5"
           >
-            <Cloud className="size-4 fill-primary/20 text-primary" />
+            <Cloud className="size-5 fill-primary/20 text-primary" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="max-h-[82vh] w-64 overflow-y-auto">
+          <DropdownMenuContent align="start" className="max-h-[82vh] w-72 overflow-y-auto text-sm">
             <DropdownMenuLabel>
               <div className="flex flex-col">
                 <span>{overview?.hostname ?? "nas-server"}</span>
@@ -86,21 +86,21 @@ export function MenuBar() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <DropdownMenuLabel className="py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               앱
             </DropdownMenuLabel>
             {APPS.map((app) => {
               const fav = favoriteIds.includes(app.id);
               return (
                 <div key={app.id} className="flex items-center gap-0.5 pr-1">
-                  <DropdownMenuItem className="flex-1" onClick={() => activate(app.id)}>
+                  <DropdownMenuItem className="flex-1 py-1.5" onClick={() => activate(app.id)}>
                     <span
                       className={cn(
-                        "flex size-5 shrink-0 items-center justify-center rounded-[26%] text-white ring-1 ring-white/10",
+                        "flex size-6 shrink-0 items-center justify-center rounded-[26%] text-white ring-1 ring-white/10",
                         app.color
                       )}
                     >
-                      <app.icon className="size-3" />
+                      <app.icon className="size-3.5" />
                     </span>
                     <span className="truncate">{app.name}</span>
                   </DropdownMenuItem>
@@ -113,11 +113,11 @@ export function MenuBar() {
                       e.stopPropagation();
                       toggleFavorite(app.id);
                     }}
-                    className="flex size-6 shrink-0 items-center justify-center rounded-md hover:bg-foreground/10"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-foreground/10"
                   >
                     <Star
                       className={cn(
-                        "size-3.5 transition-colors",
+                        "size-4 transition-colors",
                         fav ? "fill-amber-400 text-amber-400" : "text-muted-foreground/50"
                       )}
                     />
@@ -126,7 +126,7 @@ export function MenuBar() {
               );
             })}
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <DropdownMenuLabel className="py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               배경화면
             </DropdownMenuLabel>
             <div className="grid grid-cols-4 gap-1.5 px-2 pb-2">
@@ -141,7 +141,7 @@ export function MenuBar() {
                   }}
                   onPointerDown={(e) => e.stopPropagation()}
                   className={cn(
-                    "h-8 rounded-md ring-1 transition-all",
+                    "h-9 rounded-md ring-1 transition-all",
                     wallpaperId === w.id
                       ? "ring-2 ring-primary ring-offset-1 ring-offset-popover"
                       : "ring-white/10 hover:ring-white/40"
@@ -157,13 +157,13 @@ export function MenuBar() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <span className="text-[13px] font-semibold">
+        <span className="text-sm font-semibold">
           {focusedApp ? focusedApp.name : "Nimbo"}
         </span>
 
         {windows.length > 0 && (
           <DropdownMenu>
-            <DropdownMenuTrigger className="rounded-md px-1.5 py-0.5 text-[13px] outline-none hover:bg-foreground/5">
+            <DropdownMenuTrigger className="rounded-md px-1.5 py-0.5 text-sm outline-none hover:bg-foreground/5">
               창
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-48">
@@ -187,34 +187,34 @@ export function MenuBar() {
 
       <div className="flex items-center gap-3">
         {overview && (
-          <div className="hidden items-center gap-3 text-[11px] text-foreground/70 sm:flex">
+          <div className="hidden items-center gap-3 text-xs text-foreground/70 sm:flex">
             <span className="flex items-center gap-1">
-              <Cpu className="size-3" />
+              <Cpu className="size-3.5" />
               {overview.cpu.usagePercent.toFixed(0)}%
             </span>
             {overview.temperatureC != null && (
               <span className="flex items-center gap-1">
-                <Thermometer className="size-3" />
+                <Thermometer className="size-3.5" />
                 {overview.temperatureC}°C
               </span>
             )}
-            {overview.isMock && <span className="rounded bg-foreground/10 px-1.5 py-px text-[10px]">demo</span>}
+            {overview.isMock && <span className="rounded bg-foreground/10 px-1.5 py-px text-[11px]">demo</span>}
           </div>
         )}
         <button
           onClick={togglePalette}
-          className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-foreground/70 hover:bg-foreground/5"
+          className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-foreground/70 hover:bg-foreground/5"
           aria-label="명령 팔레트 열기"
         >
-          <Search className="size-3" />
-          <kbd className="font-mono text-[10px]">⌘K</kbd>
+          <Search className="size-3.5" />
+          <kbd className="font-mono text-[11px]">⌘K</kbd>
         </button>
         <button
           onClick={toggle}
-          className="flex size-5 items-center justify-center rounded-md hover:bg-foreground/5"
+          className="flex size-6 items-center justify-center rounded-md hover:bg-foreground/5"
           aria-label={theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
         >
-          {theme === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
+          {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </button>
         <Clock />
       </div>

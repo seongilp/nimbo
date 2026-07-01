@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 
 const MIN_W = 400;
 const MIN_H = 280;
-const TOPBAR_H = 30;
+const TOPBAR_H = 40;
 
 type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 

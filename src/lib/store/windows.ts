@@ -44,7 +44,7 @@ interface WindowStore {
   minimizeAll: () => void;
 }
 
-const TOPBAR_H = 30;
+const TOPBAR_H = 40;
 const DOCK_RESERVE = 96;
 
 export const useWindowStore = create<WindowStore>((set, get) => ({

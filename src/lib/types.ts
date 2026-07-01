@@ -760,9 +760,12 @@ export interface NimboUser {
 
 export interface NimboAuthConfig {
   adminClaimed: boolean;
-  allowedGroup: string; // empty = any OS account may log in (as user)
+  allowedGroup: string; // empty = no extra OS accounts (only admin + explicitly added)
+  allowedCidrs: string[]; // login IP allow-list (IPs/CIDRs). empty = no IP restriction
   users: NimboUser[];
   isMock: boolean;
+  /** Response-only: the caller's current client IP (added by the API route, not persisted). */
+  currentIp?: string;
 }
 
 // ---- fail2ban ------------------------------------------------------------

@@ -17,6 +17,8 @@ import {
   Ban,
   CheckCircle2,
   MoreHorizontal,
+  Network,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -609,9 +611,10 @@ function NimboAccessTab() {
         <div className="space-y-1 text-sm">
           <p className="font-medium">Nimbo 콘솔 계정</p>
           <p className="text-muted-foreground">
-            Nimbo에 <span className="font-medium text-foreground">처음 로그인한 OS 계정이 관리자</span>가 됩니다.
-            이후 다른 OS 계정은 <span className="font-medium text-foreground">허용 그룹</span>에 속해야 일반 사용자로 로그인할 수 있고,
-            허용 그룹이 비어 있으면 모든 유효한 OS 계정이 로그인할 수 있습니다.
+            Nimbo에 <span className="font-medium text-foreground">처음 로그인한 OS 계정이 관리자</span>가 되고,
+            그때의 <span className="font-medium text-foreground">네트워크(/24)</span>가 접속 허용 IP로 자동 등록됩니다.
+            이후 다른 OS 계정은 <span className="font-medium text-foreground">허용 그룹</span>에 속해야 로그인할 수 있으며,
+            허용 그룹이 비어 있으면 관리자와 아래에서 추가한 계정만 로그인할 수 있습니다.
           </p>
           <p className="text-xs text-muted-foreground">
             여기서 관리하는 콘솔 계정은 다른 탭의 OS 사용자·그룹과는 별개입니다.
@@ -629,7 +632,7 @@ function NimboAccessTab() {
           <Input
             value={allowedGroup}
             onChange={(e) => setGroupDraft(e.target.value)}
-            placeholder="비워두면 모든 OS 계정 허용"
+            placeholder="비워두면 관리자+추가 계정만"
             className="h-9"
           />
           <Button
@@ -647,7 +650,7 @@ function NimboAccessTab() {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          비우면 모든 OS 계정이 로그인 가능. 그룹을 지정하면 해당 그룹 멤버만 (관리자는 항상 허용).
+          비우면 관리자와 아래 목록의 계정만 로그인 가능. 그룹을 지정하면 해당 그룹 멤버도 허용(관리자는 항상 허용).
         </p>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span>예시:</span>
@@ -663,6 +666,9 @@ function NimboAccessTab() {
           ))}
         </div>
       </Card>
+
+      {/* 접속 허용 IP */}
+      <IpAllowlistCard data={data} busy={busy} act={act} />
 
       {/* Nimbo 계정 목록 */}
       <div>
@@ -688,6 +694,113 @@ function NimboAccessTab() {
         )}
       </div>
     </div>
+  );
+}
+
+function IpAllowlistCard({ data, busy, act }: { data: NimboAuthConfig; busy: boolean; act: Act }) {
+  const [draft, setDraft] = useState("");
+  const cidrs = data.allowedCidrs ?? [];
+  const currentIp = data.currentIp;
+  const restricted = cidrs.length > 0;
+
+  const addDraft = () => {
+    const v = draft.trim();
+    if (!v) return;
+    act({ kind: "ip.add", cidr: v }, `${v} 을(를) 허용했습니다`);
+    setDraft("");
+  };
+
+  return (
+    <Card className="space-y-3 p-4">
+      <div className="flex items-center gap-2">
+        <Network className="size-4 text-muted-foreground" />
+        <p className="text-sm font-medium">접속 허용 IP (로그인 제한)</p>
+        <Badge variant={restricted ? "default" : "secondary"} className="ml-auto text-[10px]">
+          {restricted ? `${cidrs.length}개 허용` : "제한 없음"}
+        </Badge>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        목록이 비어 있으면 모든 IP에서 로그인 가능. IP/CIDR을 추가하면 해당 네트워크에서만 로그인할 수 있습니다.
+        {currentIp && (
+          <>
+            {" "}현재 IP: <span className="font-mono text-foreground">{currentIp}</span>
+          </>
+        )}
+      </p>
+
+      {restricted && (
+        <div className="flex flex-wrap gap-1.5">
+          {cidrs.map((c) => (
+            <span key={c} className="flex items-center gap-1 rounded-md border bg-muted/40 px-2 py-1 font-mono text-xs">
+              {c}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => act({ kind: "ip.remove", cidr: c }, `${c} 을(를) 제거했습니다`)}
+                className="text-muted-foreground transition-colors hover:text-destructive"
+                aria-label={`${c} 제거`}
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addDraft()}
+          placeholder="예: 192.168.0.0/24 또는 10.0.0.5"
+          className="h-9 font-mono"
+        />
+        <Button size="sm" className="h-9 gap-1" disabled={busy || !draft.trim()} onClick={addDraft}>
+          <Plus className="size-4" /> 추가
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {currentIp && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1"
+            disabled={busy}
+            onClick={() => act({ kind: "ip.addCurrent" }, "현재 IP를 허용 목록에 추가했습니다")}
+          >
+            <Plus className="size-3.5" /> 현재 IP 추가
+          </Button>
+        )}
+        {restricted && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 gap-1 text-destructive"
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm("IP 제한을 완전히 해제할까요? 모든 IP에서 로그인할 수 있게 됩니다.")) {
+                act({ kind: "ip.clear" }, "IP 제한을 해제했습니다");
+              }
+            }}
+          >
+            <Ban className="size-3.5" /> 제한 해제
+          </Button>
+        )}
+      </div>
+
+      {restricted && (
+        <p className="flex items-start gap-1.5 rounded-md bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+          <Lock className="mt-0.5 size-3 shrink-0" />
+          <span>
+            잠금 주의: 허용 네트워크 밖에서는 로그인이 막힙니다. IP를 잘못 설정해 잠기면 서버에서{" "}
+            <code className="font-mono">/etc/nimbo/users.json</code>의 <code className="font-mono">allowedCidrs</code>를 비우고{" "}
+            <code className="font-mono">systemctl restart nimbo</code>로 복구하세요.
+          </span>
+        </p>
+      )}
+    </Card>
   );
 }
 

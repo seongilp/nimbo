@@ -5,6 +5,7 @@ import path from "node:path";
 import type { NimboAuthConfig, NimboRole, NimboUser } from "@/lib/types";
 import { run, runArgs, shq, USE_MOCK } from "./exec";
 import { logAudit } from "./audit";
+import { deriveSubnet, ipInCidrs, isValidCidrOrIp, normalizeIp } from "./ipacl";
 import { getSecret as readSecret, isInsecureSecret, isProduction } from "@/lib/secret";
 
 // Shared secret for signing session tokens. MUST be provided via NIMBO_SECRET
@@ -67,7 +68,7 @@ export function verifyToken(token: string | undefined): { u: string; r: NimboRol
 let cache: NimboAuthConfig | null = null;
 
 function emptyConfig(): NimboAuthConfig {
-  return { adminClaimed: false, allowedGroup: "", users: [], isMock: USE_MOCK };
+  return { adminClaimed: false, allowedGroup: "", allowedCidrs: [], users: [], isMock: USE_MOCK };
 }
 
 export async function loadAuthConfig(): Promise<NimboAuthConfig> {
@@ -179,6 +180,17 @@ export async function login(user: string, password: string, ip: string): Promise
 
   const cfg = await loadAuthConfig();
   const now = Date.now();
+
+  // ── login IP allow-list ──────────────────────────────────────────────────
+  // Skipped in mock and never engaged on the very first login (the list is
+  // empty until admin is claimed — that first login is what pins the subnet).
+  if (!USE_MOCK && cfg.allowedCidrs.length > 0 && !ipInCidrs(ip, cfg.allowedCidrs)) {
+    // Structured line for the fail2ban `nimbo` jail (correct password, wrong IP).
+    console.warn(`Nimbo authentication failure from ${ip} (user=${user}) [ip-not-allowed]`);
+    logAudit(user, "로그인", "Nimbo 웹 콘솔", "failed", ip);
+    return { ok: false, error: "이 IP 주소에서는 로그인할 수 없습니다. 허용된 네트워크에서 접속하세요." };
+  }
+
   let role: NimboRole;
   let nextCfg: NimboAuthConfig;
   const existing = cfg.users.find((u) => u.name === user);
@@ -186,14 +198,20 @@ export async function login(user: string, password: string, ip: string): Promise
     role = existing.role;
     nextCfg = { ...cfg, users: cfg.users.map((u) => (u.name === user ? { ...u, lastLogin: now } : u)) };
   } else if (!cfg.adminClaimed) {
-    // First successful login claims admin.
+    // First successful login claims admin AND pins its /24 (or /64) as the
+    // trusted network. An IP that resolves to no subnet leaves the list empty
+    // (no restriction) rather than risking a lock-out.
     role = "admin";
+    const subnet = USE_MOCK ? null : deriveSubnet(ip);
     nextCfg = {
       ...cfg,
       adminClaimed: true,
+      allowedCidrs: subnet ? [subnet] : cfg.allowedCidrs,
       users: [...cfg.users, { name: user, role, addedAt: now, lastLogin: now }],
     };
-  } else if (await inGroup(user, cfg.allowedGroup)) {
+  } else if (cfg.allowedGroup && (await inGroup(user, cfg.allowedGroup))) {
+    // Other OS accounts may log in only when an allowed group is explicitly set.
+    // Empty group = closed: only the claimed admin + accounts an admin adds.
     role = "user";
     nextCfg = { ...cfg, users: [...cfg.users, { name: user, role, addedAt: now, lastLogin: now }] };
   } else {
@@ -214,6 +232,9 @@ export interface AuthAdminAction {
   name?: string;
   role?: NimboRole;
   group?: string;
+  cidr?: string;
+  /** Server-supplied client IP for `ip.addCurrent` (route overrides any client value). */
+  ip?: string;
 }
 
 export async function runAuthAdminAction(a: AuthAdminAction): Promise<{ ok: boolean; error?: string }> {
@@ -242,6 +263,26 @@ export async function runAuthAdminAction(a: AuthAdminAction): Promise<{ ok: bool
       const g = (a.group ?? "").trim();
       if (g && !GROUP_RE.test(g)) return { ok: false, error: "잘못된 그룹 이름" };
       await saveAuthConfig({ ...cfg, allowedGroup: g });
+      return { ok: true };
+    }
+    case "ip.add":
+    case "ip.addCurrent": {
+      // ip.addCurrent uses the server-derived caller IP as a bare /32 (or /128);
+      // ip.add takes an admin-typed IP or CIDR.
+      const raw = a.kind === "ip.addCurrent" ? normalizeIp(a.ip ?? "") : (a.cidr ?? "").trim();
+      if (!raw || !isValidCidrOrIp(raw)) return { ok: false, error: "잘못된 IP 또는 CIDR입니다" };
+      if (cfg.allowedCidrs.includes(raw)) return { ok: false, error: "이미 허용 목록에 있습니다" };
+      await saveAuthConfig({ ...cfg, allowedCidrs: [...cfg.allowedCidrs, raw] });
+      return { ok: true };
+    }
+    case "ip.remove": {
+      const cidr = (a.cidr ?? "").trim();
+      await saveAuthConfig({ ...cfg, allowedCidrs: cfg.allowedCidrs.filter((c) => c !== cidr) });
+      return { ok: true };
+    }
+    case "ip.clear": {
+      // Disables the IP restriction entirely (login allowed from any address).
+      await saveAuthConfig({ ...cfg, allowedCidrs: [] });
       return { ok: true };
     }
     default:

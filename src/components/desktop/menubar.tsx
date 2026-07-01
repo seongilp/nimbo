@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Moon, Sun, Cpu, Thermometer, Cloud, Search, LayoutGrid, Copy, Minus, X, LogOut, Star, ImagePlus } from "lucide-react";
+import { Moon, Sun, Cpu, Thermometer, Cloud, Search, LayoutGrid, Copy, Minus, X, LogOut, Star, ImagePlus, Check } from "lucide-react";
 
 import { APP_MAP, APPS } from "./app-registry";
 import {
@@ -55,7 +55,9 @@ export function MenuBar() {
   const setWallpaper = useWallpaperStore((s) => s.setWallpaper);
   const customImage = useWallpaperStore((s) => s.customImage);
   const setCustomImage = useWallpaperStore((s) => s.setCustomImage);
-  const addWidget = useWidgetStore((s) => s.add);
+  const toggleWidget = useWidgetStore((s) => s.toggle);
+  const activeWidgets = useWidgetStore((s) => s.widgets);
+  const activeTypes = new Set(activeWidgets.map((w) => w.type));
   const fileRef = useRef<HTMLInputElement>(null);
   const { data: overview } = usePoll<SystemOverview>("/api/overview", 3000);
 
@@ -225,19 +227,29 @@ export function MenuBar() {
             )}
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              위젯 추가
+              위젯
             </DropdownMenuLabel>
             <div className="flex flex-wrap gap-1.5 px-2 pb-2">
-              {WIDGET_ADD.map((w) => (
-                <button
-                  key={w.type}
-                  onClick={(e) => { e.preventDefault(); addWidget(w.type); }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  className="rounded-md border border-white/10 bg-card/60 px-2.5 py-1 text-xs transition-colors hover:border-primary/40 hover:text-foreground"
-                >
-                  + {w.label}
-                </button>
-              ))}
+              {WIDGET_ADD.map((w) => {
+                const on = activeTypes.has(w.type);
+                return (
+                  <button
+                    key={w.type}
+                    onClick={(e) => { e.preventDefault(); toggleWidget(w.type); }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    aria-pressed={on}
+                    className={cn(
+                      "flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs transition-colors",
+                      on
+                        ? "border-primary/50 bg-primary/15 text-foreground"
+                        : "border-white/10 bg-card/60 hover:border-primary/40 hover:text-foreground"
+                    )}
+                  >
+                    {on ? <Check className="size-3" /> : <span className="text-muted-foreground">+</span>}
+                    {w.label}
+                  </button>
+                );
+              })}
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={logout}>

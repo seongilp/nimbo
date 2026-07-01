@@ -20,7 +20,8 @@ function persist(ws: WidgetInstance[]) {
 
 interface WidgetStore {
   widgets: WidgetInstance[];
-  add: (type: WidgetType) => void;
+  /** Add the widget if absent, remove it if already present (one per type). */
+  toggle: (type: WidgetType) => void;
   remove: (id: string) => void;
   move: (id: string, x: number, y: number) => void;
   load: () => void;
@@ -28,10 +29,18 @@ interface WidgetStore {
 
 export const useWidgetStore = create<WidgetStore>((set, get) => ({
   widgets: [],
-  add: (type) => {
-    const n = get().widgets.length;
+  toggle: (type) => {
+    const cur = get().widgets;
+    // One widget per type: a second "add" of the same type removes it instead.
+    if (cur.some((w) => w.type === type)) {
+      const next = cur.filter((w) => w.type !== type);
+      persist(next);
+      set({ widgets: next });
+      return;
+    }
+    const n = cur.length;
     const next: WidgetInstance[] = [
-      ...get().widgets,
+      ...cur,
       { id: `w${typeof window !== "undefined" ? window.performance.now().toFixed(0) : seq}-${seq++}`, type, x: 32 + (n % 3) * 28, y: 60 + n * 26 },
     ];
     persist(next);
@@ -51,10 +60,16 @@ export const useWidgetStore = create<WidgetStore>((set, get) => ({
     if (typeof window === "undefined") return;
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) set({ widgets: arr as WidgetInstance[] });
-      }
+      if (!raw) return;
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return;
+      // Keep only the first widget of each type (repairs older duplicate state).
+      const seen = new Set<WidgetType>();
+      const deduped = (arr as WidgetInstance[]).filter(
+        (w) => w && !seen.has(w.type) && (seen.add(w.type), true)
+      );
+      set({ widgets: deduped });
+      if (deduped.length !== arr.length) persist(deduped);
     } catch {
       // ignore malformed
     }

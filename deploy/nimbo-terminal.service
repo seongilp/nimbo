@@ -1,0 +1,35 @@
+[Unit]
+Description=Nimbo interactive terminal — PTY WebSocket bridge
+Documentation=https://github.com/seongilp/nimbo
+After=network-online.target nimbo.service
+Wants=network-online.target
+# Tie its lifecycle to the main app.
+PartOf=nimbo.service
+
+[Service]
+Type=simple
+# Runs as the same dedicated account as the app. The PTY inherits this user;
+# admins escalate with `sudo` inside the shell (audited by sudo/journald).
+User=nimbo
+Group=nimbo
+WorkingDirectory=/opt/nimbo-terminal
+EnvironmentFile=/etc/nimbo/nimbo.env
+# Bind to loopback only — a reverse proxy routes /api/terminal/ws here.
+Environment=TERMINAL_HOST=127.0.0.1
+Environment=TERMINAL_PORT=3001
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/nimbo-terminal/server.js
+
+Restart=always
+RestartSec=2
+StartLimitIntervalSec=0
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nimbo-terminal
+
+# Needs sudo for in-shell escalation, so NoNewPrivileges must stay false.
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target

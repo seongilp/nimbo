@@ -133,6 +133,21 @@ cp "$SRC/deploy/nimbo.service" /etc/systemd/system/nimbo.service
 systemctl daemon-reload
 systemctl enable --now nimbo
 
+# ── interactive terminal PTY sidecar (libghostty terminal backend) ────────
+# A tiny WebSocket<->PTY bridge (node-pty) on 127.0.0.1:3001. The reverse proxy
+# routes /api/terminal/ws here. Kept separate so the native module never enters
+# the web build. Requires a proxy (Caddy below) to reach the browser same-origin.
+echo "==> 터미널 PTY 사이드카 설치 (/opt/nimbo-terminal)"
+TERM_DIR=/opt/nimbo-terminal
+rm -rf "$TERM_DIR"; mkdir -p "$TERM_DIR"
+cp "$SRC/deploy/terminal-pty/package.json" "$SRC/deploy/terminal-pty/server.js" "$TERM_DIR/"
+( cd "$TERM_DIR" && npm install --omit=dev --no-audit --no-fund )
+chown -R "$SVC_USER:$SVC_USER" "$TERM_DIR"
+cp "$SRC/deploy/nimbo-terminal.service" /etc/systemd/system/nimbo-terminal.service
+systemctl daemon-reload
+systemctl enable --now nimbo-terminal
+echo "   nimbo-terminal.service 등록됨 (127.0.0.1:3001, 셸은 nimbo 권한 · sudo로 승격)"
+
 # ── optional Caddy (HTTPS) ───────────────────────────────────────────────
 if [[ -n "$CADDY_HOST" ]]; then
   echo "==> Caddy 설치 & 설정 ($CADDY_HOST:$HTTPS_PORT → 127.0.0.1:$PORT)"
@@ -160,7 +175,13 @@ $TLS_LINE
     Referrer-Policy no-referrer
     Content-Security-Policy "frame-ancestors 'none'"
   }
-  reverse_proxy 127.0.0.1:$PORT
+  # Interactive terminal WebSocket -> PTY sidecar; everything else -> the app.
+  handle /api/terminal/ws {
+    reverse_proxy 127.0.0.1:3001
+  }
+  handle {
+    reverse_proxy 127.0.0.1:$PORT
+  }
 }
 EOF
   command -v firewall-cmd >/dev/null && { firewall-cmd --add-port="$HTTPS_PORT"/tcp --permanent >/dev/null 2>&1 || true; firewall-cmd --reload >/dev/null 2>&1 || true; }

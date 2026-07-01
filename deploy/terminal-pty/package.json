@@ -1,0 +1,17 @@
+{
+  "name": "nimbo-terminal-pty",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Nimbo interactive terminal: a WebSocket -> PTY bridge (kept separate from the Next app so the native node-pty module never enters the web build).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  }
+}

@@ -6,7 +6,6 @@
 
 # ── Option A: public domain (real Let's Encrypt, fully automatic) ──────────
 nas.example.com {
-    reverse_proxy 127.0.0.1:3000
     encode zstd gzip
 
     # Security headers. The app is a desktop-metaphor UI, so clickjacking
@@ -17,6 +16,16 @@ nas.example.com {
         X-Content-Type-Options nosniff
         Referrer-Policy no-referrer
         Content-Security-Policy "frame-ancestors 'none'"
+    }
+
+    # Interactive terminal: WebSocket -> PTY sidecar (node-pty) on :3001.
+    # Everything else -> the Nimbo app on :3000. (Caddy proxies WebSockets
+    # automatically.) Without this route the terminal app can't connect.
+    handle /api/terminal/ws {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3000
     }
 }
 

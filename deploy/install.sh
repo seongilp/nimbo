@@ -86,8 +86,11 @@ echo "$SVC_USER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/nimbo
 chmod 440 /etc/sudoers.d/nimbo
 visudo -cf /etc/sudoers.d/nimbo >/dev/null || { rm -f /etc/sudoers.d/nimbo; echo "sudoers 검증 실패" >&2; exit 1; }
 
-# ── stop existing service so its port doesn't look "in use" ──────────────
+# ── stop existing services so their ports don't look "in use" ─────────────
+# (Re-run safety: a running instance holding 3000/443/80 would otherwise make
+# choose_port bump to the next free port and silently move the site.)
 systemctl stop nimbo 2>/dev/null || true
+[[ -n "$CADDY_HOST" ]] && systemctl stop caddy 2>/dev/null || true
 
 # ── port selection ───────────────────────────────────────────────────────
 PORT=$(choose_port "$PORT" "Nimbo")

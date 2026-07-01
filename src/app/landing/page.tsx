@@ -7,6 +7,7 @@ import {
   Box,
   Command,
   Database,
+  Disc3,
   HardDrive,
   Lock,
   type LucideIcon,
@@ -14,6 +15,7 @@ import {
   Package,
   Server,
   ShieldCheck,
+  SquareTerminal,
   Terminal,
   Users,
 } from "lucide-react";
@@ -28,6 +30,7 @@ export const metadata: Metadata = {
 };
 
 const REPO = "https://github.com/seongilp/nimbo";
+const MANUAL = `${REPO}/blob/main/MANUAL.md`;
 
 // ---------------------------------------------------------------------------
 
@@ -50,6 +53,18 @@ const FEATURES: Feature[] = [
     title: "ZFS 관리",
     blurb: "풀 · 데이터셋 · 스냅샷 · 복제까지 GUI 한곳에서.",
     accent: "from-cyan-500 to-sky-600",
+  },
+  {
+    icon: Disc3,
+    title: "디스크 인벤토리",
+    blurb: "SMART 건강 · serial/WWN 식별 · ZFS 멤버십 · 교체 마법사.",
+    accent: "from-cyan-500 to-teal-600",
+  },
+  {
+    icon: SquareTerminal,
+    title: "웹 터미널",
+    blurb: "브라우저에서 바로 쓰는 인터랙티브 셸 (libghostty · PTY).",
+    accent: "from-slate-500 to-slate-700",
   },
   {
     icon: Archive,
@@ -382,7 +397,7 @@ export default function LandingPage() {
                 <li className="flex items-start gap-3">
                   <Command className="mt-0.5 size-4 shrink-0 text-violet-500" />
                   <span className="text-muted-foreground">
-                    두 줄이면 설치 끝. 별도 의존성 없이 바로 실행.
+                    한 줄이면 설치 끝. 별도 의존성 없이 바로 실행.
                   </span>
                 </li>
               </ul>
@@ -392,7 +407,16 @@ export default function LandingPage() {
               <InstallBlock />
               <p className="mt-4 text-xs text-muted-foreground">
                 설치 스크립트가 빌드 · systemd 유닛 등록 · Caddy 설정까지
-                처리합니다. 자세한 내용은 저장소의{" "}
+                처리합니다. 설치 후 사용법은{" "}
+                <a
+                  href={MANUAL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  사용 매뉴얼
+                </a>
+                , 배포 세부는 저장소의{" "}
                 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">
                   DEPLOYMENT.md
                 </code>

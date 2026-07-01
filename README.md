@@ -9,6 +9,8 @@
   &nbsp;·&nbsp;
   <a href="#1-systemd로-띄우는-방법-권장">📦 한 줄 설치</a>
   &nbsp;·&nbsp;
+  <a href="MANUAL.md">📖 사용 매뉴얼</a>
+  &nbsp;·&nbsp;
   <a href="DEPLOYMENT.md">🚀 배포 가이드</a>
 </p>
 
@@ -62,8 +64,10 @@ Built with Next.js (App Router) + TypeScript + Tailwind + shadcn/ui + lucide-rea
 | --- | --- |
 | **File Station** | Browse the filesystem, navigate Samba/NFS shares, breadcrumb + sidebar |
 | **Storage Manager** | Disks, partitions, usage bars, SMART health, temperature |
+| **Disk Inventory** | Stable drive identity (serial/WWN), SMART, ZFS membership, boot-diff history, guided replace wizard |
 | **Resource Monitor** | Live CPU / memory / network gauges + sparklines, top processes |
 | **Container Manager** | Docker containers with live CPU/mem, ports, start/stop/restart |
+| **Terminal** | Interactive web shell (libghostty + PTY) over a WebSocket sidecar |
 
 ## Architecture
 
@@ -121,7 +125,8 @@ if the app is exposed directly, those headers are spoofable.
 ```bash
 # 1) 서비스 중지 · 비활성화
 sudo systemctl disable --now nimbo
-sudo rm -f /etc/systemd/system/nimbo.service
+sudo systemctl disable --now nimbo-terminal 2>/dev/null || true
+sudo rm -f /etc/systemd/system/nimbo.service /etc/systemd/system/nimbo-terminal.service
 sudo systemctl daemon-reload
 
 # 2) fail2ban jail 제거 (설치 시 추가된 경우)
@@ -129,8 +134,8 @@ sudo rm -f /etc/fail2ban/jail.d/nimbo.conf /etc/fail2ban/filter.d/nimbo.conf
 sudo systemctl reload fail2ban 2>/dev/null || true
 #    /etc/fail2ban/jail.d/sshd.local 은 일반 SSH 보호 설정이라 필요하면 남겨두세요.
 
-# 3) 앱 번들 · 소스 체크아웃 · sudo 규칙 삭제
-sudo rm -rf /opt/nimbo /opt/nimbo-src
+# 3) 앱 번들 · 터미널 사이드카 · 소스 체크아웃 · sudo 규칙 삭제
+sudo rm -rf /opt/nimbo /opt/nimbo-terminal /opt/nimbo-src
 sudo rm -f /etc/sudoers.d/nimbo
 
 # 4) 설정 · 데이터 삭제

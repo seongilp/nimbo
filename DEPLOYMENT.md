@@ -114,6 +114,16 @@ nginx를 이미 쓴다면 Caddy 대신 아래처럼 프록시한다. `X-Forwarde
 세션 쿠키에 `Secure` 플래그가 붙는다(HSTS·보안 헤더는 nginx `add_header`로 별도 설정).
 
 ```nginx
+# 터미널 앱: WebSocket 사이드카(node-pty)를 먼저 라우팅한다. 이 블록이 없으면
+# 터미널 앱은 열려도 연결이 되지 않는다(Caddy는 자동 설정됨).
+location /api/terminal/ws {
+    proxy_pass http://127.0.0.1:3001;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 86400s;
+}
 location / {
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Host $host;
@@ -121,6 +131,11 @@ location / {
     proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
+
+> **터미널 교차 출처 차단(권장).** 자체 프록시를 쓸 때는 `/etc/nimbo/nimbo.env`에
+> `NIMBO_ORIGIN=https://<접속-호스트>`를 추가하고 `sudo systemctl restart nimbo-terminal`.
+> 그러면 PTY WebSocket이 해당 Origin만 허용한다(CSWSH 방어). `--caddy`로 설치하면
+> 자동 설정된다.
 
 > **프록시 뒤 바인딩(중요).** 프록시를 쓸 때는 앱을 반드시 `HOSTNAME=127.0.0.1`로
 > 바인딩해 외부에서 직접 닿지 못하게 하라. 앱은 클라이언트 IP를(쿠키 `Secure` 판정과

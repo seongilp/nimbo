@@ -50,10 +50,14 @@ choose_port() { # $1 wanted, $2 label
   echo "$p"
 }
 
-# ── prerequisites: curl, git, node ───────────────────────────────────────
+# ── prerequisites: curl, git, node, ss ───────────────────────────────────
 command -v curl >/dev/null || pkg_install curl ca-certificates
 command -v git  >/dev/null || pkg_install git
 command -v openssl >/dev/null || pkg_install openssl || true
+# `ss` (iproute2) backs the port-conflict detection below. Without it we'd
+# silently assume every port is free and later collide with an existing proxy.
+command -v ss >/dev/null || pkg_install iproute2 || pkg_install iproute || true
+command -v ss >/dev/null || echo "⚠ 'ss' 없음 — 포트 충돌 감지를 건너뜁니다(다른 서비스와 겹칠 수 있음)." >&2
 node_ok() { command -v node >/dev/null && [[ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)" -ge 18 ]]; }
 if ! node_ok; then
   echo "==> Node.js $NODE_MAJOR 설치"
@@ -110,7 +114,13 @@ set_env() { if grep -q "^$1=" "$ENV_DIR/nimbo.env"; then sed -i "s#^$1=.*#$1=$2#
 set_env PORT "$PORT"
 set_env NIMBO_SUDO 1
 set_env NAS_MOCK 0
-[[ -n "$CADDY_HOST" ]] && set_env HOSTNAME "127.0.0.1"
+if [[ -n "$CADDY_HOST" ]]; then
+  set_env HOSTNAME "127.0.0.1"
+  # Origin allow-list for the terminal WS (CSWSH defense-in-depth). Scheme is
+  # https because Caddy terminates TLS; :443 is omitted (default port).
+  _origin="https://$CADDY_HOST"; [[ "$HTTPS_PORT" != "443" ]] && _origin="$_origin:$HTTPS_PORT"
+  set_env NIMBO_ORIGIN "$_origin"
+fi
 # Stable session-signing secret (generated once).
 grep -q "^NIMBO_SECRET=" "$ENV_DIR/nimbo.env" || \
   echo "NIMBO_SECRET=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9')" >> "$ENV_DIR/nimbo.env"
@@ -137,16 +147,39 @@ systemctl enable --now nimbo
 # A tiny WebSocket<->PTY bridge (node-pty) on 127.0.0.1:3001. The reverse proxy
 # routes /api/terminal/ws here. Kept separate so the native module never enters
 # the web build. Requires a proxy (Caddy below) to reach the browser same-origin.
+# BEST-EFFORT: node-pty is a native module; if its build fails we skip the
+# Terminal app rather than aborting the whole install (set -e would otherwise
+# kill it here, after the app but before Caddy/fail2ban).
 echo "==> 터미널 PTY 사이드카 설치 (/opt/nimbo-terminal)"
 TERM_DIR=/opt/nimbo-terminal
+TERM_OK=0
+systemctl stop nimbo-terminal 2>/dev/null || true   # re-run: don't hold stale code/port
 rm -rf "$TERM_DIR"; mkdir -p "$TERM_DIR"
 cp "$SRC/deploy/terminal-pty/package.json" "$SRC/deploy/terminal-pty/server.js" "$TERM_DIR/"
-( cd "$TERM_DIR" && npm install --omit=dev --no-audit --no-fund )
-chown -R "$SVC_USER:$SVC_USER" "$TERM_DIR"
-cp "$SRC/deploy/nimbo-terminal.service" /etc/systemd/system/nimbo-terminal.service
-systemctl daemon-reload
-systemctl enable --now nimbo-terminal
-echo "   nimbo-terminal.service 등록됨 (127.0.0.1:3001, 셸은 nimbo 권한 · sudo로 승격)"
+[[ -f "$SRC/deploy/terminal-pty/package-lock.json" ]] && cp "$SRC/deploy/terminal-pty/package-lock.json" "$TERM_DIR/"
+# node-gyp needs a C/C++ toolchain to compile node-pty.
+case "$PKG" in
+  dnf|yum) pkg_install gcc-c++ make python3 >/dev/null 2>&1 || true ;;
+  apt)     pkg_install build-essential python3 >/dev/null 2>&1 || true ;;
+esac
+term_build() { # prefer reproducible `npm ci` (lockfile present), else plain install
+  if [[ -f "$TERM_DIR/package-lock.json" ]]; then
+    ( cd "$TERM_DIR" && npm ci --omit=dev --no-audit --no-fund )
+  else
+    ( cd "$TERM_DIR" && npm install --omit=dev --no-audit --no-fund )
+  fi
+}
+if term_build; then
+  chown -R "$SVC_USER:$SVC_USER" "$TERM_DIR"
+  cp "$SRC/deploy/nimbo-terminal.service" /etc/systemd/system/nimbo-terminal.service
+  systemctl daemon-reload
+  systemctl enable nimbo-terminal >/dev/null 2>&1 || true
+  systemctl restart nimbo-terminal || true
+  TERM_OK=1
+  echo "   nimbo-terminal.service 등록됨 (127.0.0.1:3001, 셸은 nimbo 권한 · sudo로 승격)"
+else
+  echo "   ⚠ node-pty 빌드 실패 — 터미널 앱을 건너뜁니다(나머지 설치는 계속). 빌드 도구 설치 후 재실행하면 활성화됩니다." >&2
+fi
 
 # ── optional Caddy (HTTPS) ───────────────────────────────────────────────
 if [[ -n "$CADDY_HOST" ]]; then
@@ -160,6 +193,19 @@ if [[ -n "$CADDY_HOST" ]]; then
         curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
         apt-get update; pkg_install caddy ;;
     esac
+  fi
+  # Port 80 backs Caddy's HTTP→HTTPS redirect and (for real domains) the ACME
+  # HTTP challenge. If something else already owns it, Caddy may fail to bind or
+  # certificate issuance may fail — warn loudly so a dead proxy isn't reported
+  # as success. `tls internal` (IP hosts) doesn't need 80, so only warn there.
+  if port_in_use 80; then
+    if [[ "$CADDY_HOST" =~ ^[0-9.]+$ ]]; then
+      echo "   ⚠ 80 포트 사용 중 — self-signed(tls internal)에는 무방하나 HTTP 리다이렉트는 동작 안 할 수 있습니다." >&2
+    else
+      echo "   ⚠ 80 포트 사용 중 — 다른 리버스 프록시가 있는 것 같습니다. Caddy의 TLS 발급(ACME)이 실패할 수 있습니다." >&2
+      echo "     기존 프록시를 쓰려면 Caddy 없이 설치하고, 그 프록시에서 다음을 라우팅하세요:" >&2
+      echo "       /api/terminal/ws → 127.0.0.1:3001   ·   그 외 → 127.0.0.1:$PORT" >&2
+    fi
   fi
   local_site="$CADDY_HOST"; [[ "$HTTPS_PORT" != "443" ]] && local_site="$CADDY_HOST:$HTTPS_PORT"
   [[ "$CADDY_HOST" =~ ^[0-9.]+$ ]] && TLS_LINE="  tls internal" || TLS_LINE=""
@@ -184,9 +230,24 @@ $TLS_LINE
   }
 }
 EOF
-  command -v firewall-cmd >/dev/null && { firewall-cmd --add-port="$HTTPS_PORT"/tcp --permanent >/dev/null 2>&1 || true; firewall-cmd --reload >/dev/null 2>&1 || true; }
-  systemctl enable --now caddy || true
-  systemctl reload caddy || systemctl restart caddy || true
+  # Open the HTTPS port (and 80 for the redirect/ACME) on whichever firewall runs.
+  if command -v firewall-cmd >/dev/null; then
+    firewall-cmd --add-port="$HTTPS_PORT"/tcp --permanent >/dev/null 2>&1 || true
+    [[ "$CADDY_HOST" =~ ^[0-9.]+$ ]] || firewall-cmd --add-port=80/tcp --permanent >/dev/null 2>&1 || true
+    firewall-cmd --reload >/dev/null 2>&1 || true
+  elif command -v ufw >/dev/null; then
+    ufw allow "$HTTPS_PORT"/tcp >/dev/null 2>&1 || true
+    [[ "$CADDY_HOST" =~ ^[0-9.]+$ ]] || ufw allow 80/tcp >/dev/null 2>&1 || true
+  fi
+  systemctl enable caddy >/dev/null 2>&1 || true
+  systemctl restart caddy 2>/dev/null || systemctl start caddy 2>/dev/null || true
+  # Don't report success for a Caddy that failed to start/bind.
+  if systemctl is-active --quiet caddy; then
+    echo "   Caddy 실행 중 ($local_site → 127.0.0.1:$PORT)"
+  else
+    echo "   ⚠ Caddy가 시작되지 않았습니다 — 로그 확인: journalctl -u caddy -n 50 --no-pager" >&2
+    echo "     (포트 충돌이면 --caddy 대신 기존 프록시에서 /api/terminal/ws → :3001, 그 외 → :$PORT 라우팅)" >&2
+  fi
 fi
 
 # ── fail2ban (SSH + Nimbo login brute-force protection) ──────────────────
@@ -221,3 +282,16 @@ else
   echo "   접속:   http://<this-host>:$PORT"
 fi
 echo "   로그인: 이 서버의 OS 계정(root 등)으로 로그인"
+# The Terminal app talks to the sidecar over /api/terminal/ws (same-origin).
+# Caddy wires that automatically; without --caddy the operator's own proxy must.
+if [[ "$TERM_OK" == "1" && -z "$CADDY_HOST" ]]; then
+  echo ""
+  echo "ℹ 터미널 앱: 리버스 프록시에서 WebSocket 경로를 라우팅해야 동작합니다."
+  echo "   /api/terminal/ws → 127.0.0.1:3001  (그 외 → 127.0.0.1:$PORT)"
+  echo "   nginx 예시:"
+  echo "     location /api/terminal/ws { proxy_pass http://127.0.0.1:3001;"
+  echo "       proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade;"
+  echo "       proxy_set_header Connection \"upgrade\"; proxy_set_header Host \$host; }"
+  echo "   교차 출처 차단(권장): /etc/nimbo/nimbo.env 에 NIMBO_ORIGIN=https://<your-host> 추가 후"
+  echo "     sudo systemctl restart nimbo-terminal"
+fi

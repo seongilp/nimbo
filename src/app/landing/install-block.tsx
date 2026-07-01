@@ -5,7 +5,7 @@ import { Check, Copy, Terminal } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-const COMMAND = "git clone https://github.com/seongilp/nimbo && cd nimbo && sudo ./deploy/install.sh";
+const COMMAND = "curl -fsSL https://raw.githubusercontent.com/seongilp/nimbo/main/deploy/bootstrap.sh | sudo bash";
 
 export function InstallBlock() {
   const [copied, setCopied] = useState(false);
@@ -72,10 +72,7 @@ export function InstallBlock() {
       <pre className="overflow-x-auto p-5 text-[13px] leading-relaxed">
         <code className="font-mono">
           <span className="text-muted-foreground select-none">$ </span>
-          git clone https://github.com/seongilp/nimbo &amp;&amp; cd nimbo
-          {"\n"}
-          <span className="text-muted-foreground select-none">$ </span>
-          <span className="text-primary">sudo</span> ./deploy/install.sh
+          curl -fsSL https://raw.githubusercontent.com/seongilp/nimbo/main/deploy/bootstrap.sh | <span className="text-primary">sudo</span> bash
         </code>
       </pre>
     </button>

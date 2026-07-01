@@ -21,6 +21,25 @@ const SHELL = process.env.TERMINAL_SHELL || process.env.SHELL || "/bin/bash";
 const WS_PATH = "/api/terminal/ws";
 const PROD = process.env.NODE_ENV === "production";
 const DEV_SECRET = "nimbo-dev-insecure-secret-change-me";
+// CSWSH defense-in-depth: allow-list of acceptable Origins. Comma-separated
+// hostnames or full origins (e.g. "nas.lan,https://nas.lan"). When unset we
+// fall back to cookie auth only (backward compatible), but the shell is still
+// gated by the HMAC session cookie below.
+const ALLOWED_ORIGINS = (process.env.NIMBO_ORIGIN || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function originAllowed(origin) {
+  if (!ALLOWED_ORIGINS.length) return true; // not configured — rely on cookie auth
+  if (!origin) return false; // configured but no Origin header → reject
+  let host;
+  try { host = new URL(origin).host.split(":")[0]; } catch { return false; }
+  return ALLOWED_ORIGINS.some((a) => {
+    const bare = a.replace(/^https?:\/\//, "").split(":")[0];
+    return a === origin || bare === host;
+  });
+}
 
 if (PROD && (!SECRET || SECRET === DEV_SECRET)) {
   console.error("[terminal] FATAL: NIMBO_SECRET unset/dev in production — refusing all connections.");
@@ -66,18 +85,24 @@ const server = http.createServer((_req, res) => {
 const wss = new WebSocketServer({ server, path: WS_PATH });
 
 wss.on("connection", (ws, req) => {
+  if (!originAllowed(req.headers.origin)) {
+    ws.close(1008, "forbidden origin");
+    return;
+  }
   const session = verifyToken(cookie(req, "nimbo_session"));
   if (!session || session.r !== "admin") {
     ws.close(1008, "unauthorized");
     return;
   }
 
+  // Don't hand the global session-signing key to the interactive shell.
+  const { NIMBO_SECRET: _omit, ...childEnv } = process.env;
   const term = pty.spawn(SHELL, ["-l"], {
     name: "xterm-256color",
     cols: 80,
     rows: 24,
     cwd: process.env.HOME || os.homedir() || "/",
-    env: { ...process.env, TERM: "xterm-256color", NIMBO_TERMINAL: "1" },
+    env: { ...childEnv, TERM: "xterm-256color", NIMBO_TERMINAL: "1" },
   });
   console.log(`[terminal] ${session.u} opened pty ${term.pid} (${SHELL})`);
 

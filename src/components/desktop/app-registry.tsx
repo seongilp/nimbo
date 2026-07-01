@@ -1,10 +1,11 @@
 "use client";
 
 import type { ComponentType } from "react";
-import { FolderClosed, HardDrive, Activity, Box, Settings as SettingsIcon, Database, RefreshCw, Bell, ServerCog, UsersRound, ShieldCheck, FolderCog, Package, LayoutDashboard, Lock, BatteryCharging, ScrollText, SquareTerminal } from "lucide-react";
+import { FolderClosed, HardDrive, Activity, Box, Settings as SettingsIcon, Database, RefreshCw, Bell, ServerCog, UsersRound, ShieldCheck, FolderCog, Package, LayoutDashboard, Lock, BatteryCharging, ScrollText, SquareTerminal, Disc3 } from "lucide-react";
 
 import { FileStation } from "@/components/apps/file-station";
 import { Terminal } from "@/components/apps/terminal";
+import { DiskInventory } from "@/components/apps/disk-inventory";
 import { StorageManager } from "@/components/apps/storage-manager";
 import { ResourceMonitor } from "@/components/apps/resource-monitor";
 import { ContainerManager } from "@/components/apps/container-manager";
@@ -84,6 +85,16 @@ export const APPS: AppDef[] = [
     component: StorageManager,
     width: 780,
     height: 620,
+  },
+  {
+    id: "disks",
+    name: "Disk Inventory",
+    description: "HDD 인벤토리 · 결함 · 이력 · 교체",
+    icon: Disc3,
+    color: "bg-gradient-to-b from-[#0891B2] to-[#155E75]",
+    component: DiskInventory,
+    width: 900,
+    height: 640,
   },
   {
     id: "monitor",

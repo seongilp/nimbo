@@ -1,4 +1,4 @@
-import type { DiskInfo, PartitionInfo } from "@/lib/types";
+import type { DiskInfo, DiskTransport, PartitionInfo } from "@/lib/types";
 import { run, USE_MOCK } from "./exec";
 import { mockDisks } from "./mock";
 
@@ -7,6 +7,10 @@ interface LsblkNode {
   type: string;
   size?: number;
   model?: string | null;
+  serial?: string | null;
+  wwn?: string | null;
+  rev?: string | null;
+  hctl?: string | null;
   rota?: boolean;
   tran?: string | null;
   mountpoint?: string | null;
@@ -33,6 +37,19 @@ function classify(node: LsblkNode): DiskInfo["type"] {
   return "unknown";
 }
 
+// Keep the raw bus type (sata/sas/usb/nvme/iscsi/virtio) — lsblk already fetches
+// it as TRAN; the old classify() collapsed it to hdd/ssd/nvme and threw it away.
+function transportOf(node: LsblkNode): DiskTransport {
+  const t = (node.tran ?? "").toLowerCase();
+  if (t === "sata" || t === "ata") return "sata";
+  if (t === "sas") return "sas";
+  if (t === "usb") return "usb";
+  if (t === "iscsi") return "iscsi";
+  if (t === "virtio") return "virtio";
+  if (t === "nvme" || node.name.startsWith("nvme")) return "nvme";
+  return "unknown";
+}
+
 function toPartitions(node: LsblkNode): PartitionInfo[] {
   const parts: PartitionInfo[] = [];
   const walk = (n: LsblkNode) => {
@@ -56,30 +73,151 @@ function toPartitions(node: LsblkNode): PartitionInfo[] {
   return parts;
 }
 
-async function smartStatus(device: string): Promise<{ status: DiskInfo["smartStatus"]; tempC: number | null }> {
-  const { stdout, code } = await run(`smartctl -H -A ${device} 2>/dev/null`);
-  if (code !== 0 || !stdout) return { status: "unknown", tempC: null };
-  const healthy = /SMART overall-health self-assessment test result:\s+PASSED/i.test(stdout) ||
+// --------------------------------------------------------------------------
+// /dev/disk/by-id and /dev/disk/by-path symlink resolution (kernel name -> links).
+// These give a stable identity + a physical slot hint that lsblk alone omits.
+// --------------------------------------------------------------------------
+interface DiskLinks {
+  byId: string | null;
+  byPath: string | null;
+}
+
+function preferById(current: string | null, candidate: string): string {
+  const name = (p: string) => p.split("/").pop() ?? "";
+  if (!current) return candidate;
+  // Prefer human-readable ata-/nvme-/scsi-/usb- over bare wwn-.
+  if (/^wwn-/.test(name(current)) && !/^wwn-/.test(name(candidate))) return candidate;
+  return current;
+}
+
+async function resolveDiskLinks(): Promise<Map<string, DiskLinks>> {
+  const map = new Map<string, DiskLinks>();
+  const { stdout, code } = await run("ls -l /dev/disk/by-id /dev/disk/by-path 2>/dev/null");
+  if (code !== 0 || !stdout) return map;
+  let section: "id" | "path" | null = null;
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith("/dev/disk/by-id")) { section = "id"; continue; }
+    if (line.startsWith("/dev/disk/by-path")) { section = "path"; continue; }
+    const m = line.match(/(\S+)\s+->\s+\.\.\/\.\.\/(\S+)$/);
+    if (!m || !section) continue;
+    const linkName = m[1].split("/").pop() ?? m[1];
+    const target = m[2]; // kernel device name
+    if (/-part\d+$/.test(linkName)) continue; // skip partition links
+    const entry = map.get(target) ?? { byId: null, byPath: null };
+    if (section === "id") entry.byId = preferById(entry.byId, "/dev/disk/by-id/" + linkName);
+    else if (!entry.byPath) entry.byPath = "/dev/disk/by-path/" + linkName;
+    map.set(target, entry);
+  }
+  return map;
+}
+
+// --------------------------------------------------------------------------
+// SMART detail via `smartctl -j -a` (JSON), with a text fallback for old
+// smartmontools. `-n standby` avoids spinning up a sleeping HDD just to poll it.
+// --------------------------------------------------------------------------
+interface SmartDetail {
+  status: DiskInfo["smartStatus"];
+  tempC: number | null;
+  firmware: string | null;
+  rotationRpm: number | null;
+  serial: string | null;
+  powerOnHours: number | null;
+  reallocatedSectors: number | null;
+  pendingSectors: number | null;
+}
+
+const EMPTY_SMART: SmartDetail = {
+  status: "unknown", tempC: null, firmware: null, rotationRpm: null,
+  serial: null, powerOnHours: null, reallocatedSectors: null, pendingSectors: null,
+};
+
+function clampTemp(t: unknown): number | null {
+  return typeof t === "number" && t > 0 && t < 120 ? t : null;
+}
+
+// Minimal shape of the fields we read from `smartctl --json` (ATA + NVMe).
+interface SmartJson {
+  smart_status?: { passed?: boolean };
+  temperature?: { current?: number };
+  firmware_version?: string;
+  rotation_rate?: number;
+  serial_number?: string;
+  power_on_time?: { hours?: number };
+  ata_smart_attributes?: { table?: Array<{ id?: number; raw?: { value?: number } }> };
+  nvme_smart_health_information_log?: { temperature?: number; power_on_hours?: number };
+}
+
+async function smartDetail(device: string): Promise<SmartDetail> {
+  const json = await run(`smartctl -j -a -n standby ${device} 2>/dev/null`, { timeoutMs: 12000 });
+  if (json.stdout && json.stdout.trim().startsWith("{")) {
+    try {
+      const j = JSON.parse(json.stdout) as SmartJson;
+      const passed = j.smart_status?.passed;
+      let status: DiskInfo["smartStatus"] = passed === true ? "passed" : passed === false ? "failed" : "unknown";
+
+      let reallocated: number | null = null;
+      let pending: number | null = null;
+      const attrs = j.ata_smart_attributes?.table;
+      if (Array.isArray(attrs)) {
+        for (const a of attrs) {
+          if (a.id === 5) reallocated = a.raw?.value ?? null;
+          if (a.id === 197) pending = a.raw?.value ?? null;
+        }
+      }
+      if (status === "passed" && ((reallocated ?? 0) > 0 || (pending ?? 0) > 0)) status = "warning";
+
+      const tempC = clampTemp(j.temperature?.current ?? j.nvme_smart_health_information_log?.temperature);
+      return {
+        status,
+        tempC,
+        firmware: j.firmware_version ?? null,
+        rotationRpm: typeof j.rotation_rate === "number" ? j.rotation_rate : null,
+        serial: j.serial_number ?? null,
+        powerOnHours:
+          typeof j.power_on_time?.hours === "number"
+            ? j.power_on_time.hours
+            : typeof j.nvme_smart_health_information_log?.power_on_hours === "number"
+              ? j.nvme_smart_health_information_log.power_on_hours
+              : null,
+        reallocatedSectors: reallocated,
+        pendingSectors: pending,
+      };
+    } catch {
+      // fall through to text parse
+    }
+  }
+
+  // Fallback: text parse (legacy smartmontools / no JSON support).
+  const { stdout, code } = await run(`smartctl -H -A ${device} 2>/dev/null`, { timeoutMs: 12000 });
+  if (code !== 0 || !stdout) return EMPTY_SMART;
+  const healthy =
+    /SMART overall-health self-assessment test result:\s+PASSED/i.test(stdout) ||
     /SMART Health Status:\s+OK/i.test(stdout);
-  // Anchor failure to the actual health-result line or a real FAILING_NOW
-  // attribute value. NOT a bare /FAILED/ — the smartctl -A attribute table
-  // always has a "WHEN_FAILED" column header, which would match every disk.
-  const failed = /self-assessment test result:\s+FAILED/i.test(stdout) ||
+  const failed =
+    /self-assessment test result:\s+FAILED/i.test(stdout) ||
     /SMART Health Status:\s+(FAILED|FAIL)/i.test(stdout) ||
     /\bFAILING_NOW\b/i.test(stdout);
-  const tempMatch = stdout.match(/Temperature.*?(\d{1,3})\s*(?:Celsius|\(|$)/i) ||
+  const tempMatch =
+    stdout.match(/Temperature.*?(\d{1,3})\s*(?:Celsius|\(|$)/i) ||
     stdout.match(/Temperature_Celsius.*?(\d{1,3})\s*$/im);
-  const tempC = tempMatch ? Number(tempMatch[1]) : null;
   return {
+    ...EMPTY_SMART,
     status: failed ? "failed" : healthy ? "passed" : "warning",
-    tempC: tempC && tempC > 0 && tempC < 120 ? tempC : null,
+    tempC: clampTemp(tempMatch ? Number(tempMatch[1]) : null),
   };
+}
+
+function computeStableId(d: { wwn: string | null; serial: string | null; byId: string | null; model: string; name: string }): string {
+  if (d.wwn) return `wwn:${d.wwn}`;
+  if (d.serial) return `serial:${d.serial}`;
+  if (d.byId) return `byid:${d.byId.split("/").pop()}`;
+  return `dev:${d.model}:${d.name}`;
 }
 
 export async function getDisks(): Promise<DiskInfo[]> {
   if (USE_MOCK) return mockDisks();
   const { stdout, code } = await run(
-    "lsblk -J -b -o NAME,TYPE,SIZE,MODEL,ROTA,TRAN,MOUNTPOINT,FSTYPE,FSAVAIL,FSUSED,FSSIZE"
+    "lsblk -J -b -o NAME,TYPE,SIZE,MODEL,SERIAL,WWN,REV,HCTL,ROTA,TRAN,MOUNTPOINT,FSTYPE,FSAVAIL,FSUSED,FSSIZE"
   );
   if (code !== 0) return mockDisks();
   let parsed: { blockdevices: LsblkNode[] };
@@ -88,19 +226,37 @@ export async function getDisks(): Promise<DiskInfo[]> {
   } catch {
     return mockDisks();
   }
+
+  const links = await resolveDiskLinks();
   const disks: DiskInfo[] = [];
   for (const node of parsed.blockdevices ?? []) {
     if (node.type !== "disk") continue;
     const device = "/dev/" + node.name;
-    const smart = await smartStatus(device);
+    const smart = await smartDetail(device);
+    const serial = (node.serial ?? smart.serial) || null;
+    const wwn = node.wwn || null;
+    const link = links.get(node.name) ?? { byId: null, byPath: null };
+    const model = (node.model ?? "Unknown").trim() || "Unknown";
     disks.push({
       device,
-      model: (node.model ?? "Unknown").trim() || "Unknown",
+      model,
       sizeBytes: numOr(node.size, 0),
       type: classify(node),
       temperatureC: smart.tempC,
       smartStatus: smart.status,
       partitions: toPartitions(node),
+      stableId: computeStableId({ wwn, serial, byId: link.byId, model, name: node.name }),
+      serial,
+      wwn,
+      byId: link.byId,
+      transport: transportOf(node),
+      firmware: (node.rev ?? smart.firmware) || null,
+      rotationRpm: smart.rotationRpm,
+      hctl: node.hctl ?? null,
+      byPath: link.byPath,
+      powerOnHours: smart.powerOnHours,
+      reallocatedSectors: smart.reallocatedSectors,
+      pendingSectors: smart.pendingSectors,
     });
   }
   return disks.length ? disks : mockDisks();

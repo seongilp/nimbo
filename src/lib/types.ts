@@ -44,14 +44,30 @@ export interface ProcessInfo {
   memPercent: number;
 }
 
+export type DiskTransport = "sata" | "sas" | "usb" | "nvme" | "iscsi" | "virtio" | "unknown";
+
 export interface DiskInfo {
-  device: string; // /dev/sda
+  device: string; // /dev/sda (kernel name — NOT stable across reboots)
   model: string;
   sizeBytes: number;
   type: "hdd" | "ssd" | "nvme" | "unknown";
   temperatureC: number | null;
   smartStatus: "passed" | "warning" | "failed" | "unknown";
   partitions: PartitionInfo[];
+  // ---- stable identity (survives reboots / bus renumbering) ----
+  stableId: string; // wwn:… | serial:… | byid:… | dev:… (used as the inventory key)
+  serial: string | null;
+  wwn: string | null;
+  byId: string | null; // /dev/disk/by-id/… representative link
+  transport: DiskTransport;
+  firmware: string | null;
+  rotationRpm: number | null; // 0 = SSD
+  hctl: string | null; // host:channel:target:lun — slot hint
+  byPath: string | null; // /dev/disk/by-path/… — slot hint
+  // ---- SMART detail ----
+  powerOnHours: number | null;
+  reallocatedSectors: number | null;
+  pendingSectors: number | null;
 }
 
 export interface PartitionInfo {
@@ -230,6 +246,61 @@ export interface ZfsOverview {
   arc: ArcStats | null;
   availableDevices: ZfsDevice[];
   schedules: SnapshotSchedule[];
+  isMock: boolean;
+}
+
+// ---- Disk inventory -----------------------------------------------------
+
+/** User-assigned physical location metadata, keyed by DiskInfo.stableId. */
+export interface DiskLocation {
+  label: string; // e.g. "Bay 1"
+  bay: string; // slot/bay identifier
+  note: string;
+}
+
+/** How a physical disk maps into a ZFS pool (joined via stable identity). */
+export interface DiskZfsRef {
+  pool: string;
+  vdev: string; // parent vdev, e.g. "raidz2-0"
+  member: string; // leaf name as zpool prints it (usually a by-id label)
+  role: VdevType;
+  state: ZfsHealth;
+  readErrors: number;
+  writeErrors: number;
+  cksumErrors: number;
+}
+
+export type DiskFault = "ok" | "warning" | "critical";
+
+/** A physical disk unified with its ZFS role, location, and overall fault. */
+export interface DiskInventoryItem {
+  disk: DiskInfo;
+  zfs: DiskZfsRef | null;
+  location: DiskLocation | null;
+  fault: DiskFault; // worst of SMART + ZFS
+  faultReasons: string[];
+}
+
+export interface DiskInventoryOverview {
+  disks: DiskInventoryItem[];
+  isMock: boolean;
+}
+
+export type DiskHistoryKind = "added" | "removed" | "moved" | "smart" | "zfs";
+
+/** One boot-to-boot / poll-to-poll inventory change. */
+export interface DiskHistoryEntry {
+  id: string;
+  ts: number; // epoch ms
+  bootId: string; // /proc/sys/kernel/random/boot_id — groups changes by boot
+  kind: DiskHistoryKind;
+  stableId: string;
+  model: string;
+  detail: string;
+}
+
+export interface DiskHistoryOverview {
+  entries: DiskHistoryEntry[];
   isMock: boolean;
 }
 

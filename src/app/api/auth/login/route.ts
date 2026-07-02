@@ -1,15 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { login } from "@/lib/system/auth";
+import { clientIp } from "@/lib/api/client-ip";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function clientIp(req: Request): string {
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0].trim();
-  return req.headers.get("x-real-ip") || "unknown";
-}
 
 // Behind Caddy the proxy→app hop is plain HTTP, so new URL(request.url).protocol
 // is always "http:". Honour the proxy's x-forwarded-proto so the session cookie

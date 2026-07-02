@@ -59,7 +59,7 @@ ExecStart=/usr/bin/node /opt/nimbo/server.js
 EnvironmentFile=/etc/nimbo/nimbo.env
 Restart=always            # 크래시/OOM 후 자동 복구
 RestartSec=2
-User=root                 # 디스크·ZFS·systemd·방화벽 관리에 필요
+User=nimbo                # 전용 계정(무암호 sudo). 권한 명령은 sudo로 실행 — 프로세스 자체는 root 아님
 
 [Install]
 WantedBy=multi-user.target
@@ -150,7 +150,9 @@ location /api/terminal/ws {
 location / {
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # 반드시 덮어쓰기($proxy_add_x_forwarded_for는 append라 클라이언트가 보낸 값이 남는다).
+    # 앱은 로그인 IP 허용목록·fail2ban 대상에 이 값을 쓰므로 클라이언트 위조값이 섞이면 안 된다.
+    proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
@@ -164,8 +166,12 @@ location / {
 > 바인딩해 외부에서 직접 닿지 못하게 하라. 앱은 클라이언트 IP를(쿠키 `Secure` 판정과
 > fail2ban 차단 대상에 쓰이는) `X-Forwarded-For` / `X-Forwarded-Proto` 헤더에서 읽는다.
 > 이 헤더는 **신뢰된 프록시만** 설정해야 한다. 앱이 직접 노출되면 클라이언트가 헤더를
-> 위조해 차단을 회피하거나 무고한 IP를 차단시킬 수 있다. Caddy/nginx는 들어오는
-> `X-Forwarded-*`를 덮어쓰므로(프록시가 직접 닿는 유일한 경로일 때) 안전하다.
+> 위조해 차단을 회피하거나 무고한 IP를 차단시킬 수 있다.
+>
+> ⚠️ **중요:** `X-Forwarded-For`는 프록시가 기본적으로 **append**한다(`<클라이언트값>, <실제IP>`).
+> 그래서 앱은 **맨 오른쪽(프록시가 붙인) 값**만 신뢰한다. 자체 프록시를 쓸 때는 위 nginx 예시처럼
+> `X-Forwarded-For $remote_addr`로 **덮어써서** 클라이언트 위조값을 제거하라. Caddy 기본 설치는
+> `header_up X-Forwarded-For {remote_host}`로 자동으로 덮어쓴다.
 
 ---
 

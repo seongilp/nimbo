@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { getAuthConfig, runAuthAdminAction, verifyToken, type AuthAdminAction } from "@/lib/system/auth";
+import { clientIp } from "@/lib/api/client-ip";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -9,12 +10,6 @@ export const revalidate = 0;
 async function requireAdmin(): Promise<boolean> {
   const token = (await cookies()).get("nimbo_session")?.value;
   return verifyToken(token)?.r === "admin";
-}
-
-function clientIp(req: Request): string {
-  const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0].trim();
-  return req.headers.get("x-real-ip") || "unknown";
 }
 
 export async function GET(request: Request) {

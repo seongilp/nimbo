@@ -44,6 +44,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePoll } from "@/lib/hooks/use-poll";
+import { ipInCidrs } from "@/lib/system/ipacl";
 import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
@@ -700,7 +701,8 @@ function NimboAccessTab() {
 function IpAllowlistCard({ data, busy, act }: { data: NimboAuthConfig; busy: boolean; act: Act }) {
   const [draft, setDraft] = useState("");
   const cidrs = data.allowedCidrs ?? [];
-  const currentIp = data.currentIp;
+  // "unknown" (no proxy IP header) is not a usable IP — treat as absent.
+  const currentIp = data.currentIp && data.currentIp !== "unknown" ? data.currentIp : undefined;
   const restricted = cidrs.length > 0;
 
   const addDraft = () => {
@@ -708,6 +710,15 @@ function IpAllowlistCard({ data, busy, act }: { data: NimboAuthConfig; busy: boo
     if (!v) return;
     act({ kind: "ip.add", cidr: v }, `${v} 을(를) 허용했습니다`);
     setDraft("");
+  };
+
+  const removeCidr = (c: string) => {
+    // Guard against locking yourself out: if removing c leaves a non-empty list
+    // that no longer covers your current IP, you can't log back in from here.
+    const rest = cidrs.filter((x) => x !== c);
+    const selfLock = currentIp && rest.length > 0 && !ipInCidrs(currentIp, rest);
+    if (selfLock && !window.confirm(`${c} 를 제거하면 현재 IP(${currentIp})가 허용 목록에서 빠져 이 네트워크에서 로그인할 수 없게 됩니다. 계속할까요?`)) return;
+    act({ kind: "ip.remove", cidr: c }, `${c} 을(를) 제거했습니다`);
   };
 
   return (
@@ -737,7 +748,7 @@ function IpAllowlistCard({ data, busy, act }: { data: NimboAuthConfig; busy: boo
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => act({ kind: "ip.remove", cidr: c }, `${c} 을(를) 제거했습니다`)}
+                onClick={() => removeCidr(c)}
                 className="text-muted-foreground transition-colors hover:text-destructive"
                 aria-label={`${c} 제거`}
               >

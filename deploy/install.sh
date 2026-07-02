@@ -276,11 +276,17 @@ $TLS_LINE
     Content-Security-Policy "frame-ancestors 'none'"
   }
   # Interactive terminal WebSocket -> PTY sidecar; everything else -> the app.
+  # header_up overwrites X-Forwarded-For with the real client so the app can't
+  # be fed a spoofed leftmost XFF value (login IP allow-list / fail2ban target).
   handle /api/terminal/ws {
-    reverse_proxy 127.0.0.1:3001
+    reverse_proxy 127.0.0.1:3001 {
+      header_up X-Forwarded-For {remote_host}
+    }
   }
   handle {
-    reverse_proxy 127.0.0.1:$PORT
+    reverse_proxy 127.0.0.1:$PORT {
+      header_up X-Forwarded-For {remote_host}
+    }
   }
 }
 EOF

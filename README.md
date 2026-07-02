@@ -115,7 +115,7 @@ if the app is exposed directly, those headers are spoofable.
 | Var | Default | Purpose |
 | --- | --- | --- |
 | `NAS_MOCK` | unset | `1` forces demo data |
-| `NAS_FILE_ROOTS` | `/srv:/mnt:/home:/volume1` | Colon-separated roots File Station may read (symlink-escape is blocked) |
+| `NAS_FILE_ROOTS` | shipped `/` (whole filesystem — single-admin appliance); code fallback when unset is `/srv:/mnt:/home:/volume1` | Colon-separated roots File Station may read (symlink-escape is blocked). Restrict to specific paths in `/etc/nimbo/nimbo.env` if you don't want whole-FS browsing. |
 | `NIMBO_SECRET` | unset | Session-signing key. **Required in production** — without it the app fails closed (sessions disabled, no login). `install.sh` auto-generates one; set it yourself for Docker (`-e NIMBO_SECRET=$(openssl rand -hex 32)`). |
 
 ## 제거 (Uninstall)

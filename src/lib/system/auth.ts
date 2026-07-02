@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
-import type { NimboAuthConfig, NimboRole, NimboUser } from "@/lib/types";
+import type { NimboAuthConfig, NimboRole } from "@/lib/types";
 import { run, runArgs, shq, USE_MOCK } from "./exec";
 import { logAudit } from "./audit";
 import { deriveSubnet, ipInCidrs, isValidCidrOrIp, normalizeIp } from "./ipacl";
@@ -175,21 +175,22 @@ export async function login(user: string, password: string, ip: string): Promise
     logAudit(user, "로그인", "Nimbo 웹 콘솔", "failed", ip);
     return { ok: false, error: "사용자 이름 또는 비밀번호가 올바르지 않습니다.", lockedFor: loginLocked(ip) || undefined };
   }
-  recordSuccess(ip);
-  logAudit(user, "로그인", "Nimbo 웹 콘솔", "success", ip);
-
+  // Password is correct, but evaluate the IP allow-list BEFORE recording success
+  // — a blocked IP must not clear the brute-force counter or log a false
+  // "success" row. Skipped in mock, and never engaged on the very first login
+  // (the list is empty until admin is claimed — that first login pins the subnet).
   const cfg = await loadAuthConfig();
   const now = Date.now();
 
-  // ── login IP allow-list ──────────────────────────────────────────────────
-  // Skipped in mock and never engaged on the very first login (the list is
-  // empty until admin is claimed — that first login is what pins the subnet).
   if (!USE_MOCK && cfg.allowedCidrs.length > 0 && !ipInCidrs(ip, cfg.allowedCidrs)) {
     // Structured line for the fail2ban `nimbo` jail (correct password, wrong IP).
     console.warn(`Nimbo authentication failure from ${ip} (user=${user}) [ip-not-allowed]`);
     logAudit(user, "로그인", "Nimbo 웹 콘솔", "failed", ip);
     return { ok: false, error: "이 IP 주소에서는 로그인할 수 없습니다. 허용된 네트워크에서 접속하세요." };
   }
+
+  recordSuccess(ip);
+  logAudit(user, "로그인", "Nimbo 웹 콘솔", "success", ip);
 
   let role: NimboRole;
   let nextCfg: NimboAuthConfig;

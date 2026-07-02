@@ -369,8 +369,11 @@ function downloadBlob(name: string, mime: string, content: string) {
 }
 
 function csvCell(v: unknown): string {
-  const s = v == null ? "" : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  let s = v == null ? "" : String(v);
+  // Neutralize spreadsheet formula injection (a cell starting with = + - @ or a
+  // control char is executed as a formula by Excel/Sheets) by prefixing a quote.
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 export function DiskInventory() {

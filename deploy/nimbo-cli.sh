@@ -134,7 +134,7 @@ case "${1:-help}" in
   restart)         cmd_restart ;;
   update|upgrade)  cmd_update ;;
   url)             cmd_url ;;
-  uninstall|remove) shift || true; cmd_uninstall "${1:-}" ;;
+  uninstall|remove) shift || true; cmd_uninstall "$@" ;;
   help|-h|--help)  cmd_help ;;
   *) echo "알 수 없는 명령: $1" >&2; cmd_help; exit 1 ;;
 esac

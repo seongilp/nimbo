@@ -37,23 +37,37 @@ cmd_url() {
   if systemctl is-active --quiet caddy && [[ -f "$CADDYFILE" ]]; then
     echo "https://$(awk 'NF{gsub(/ *\{.*/,"");print;exit}' "$CADDYFILE")"
   else
-    local port; port=$(grep -oE '^PORT=.*' "$ENV_FILE" 2>/dev/null | cut -d= -f2)
-    echo "http://<this-host>:${port:-3000}"
+    # `|| true`: grep exits non-zero on no-match; without it set -e/pipefail
+    # would abort before the ${port:-3000} fallback runs.
+    local port; port=$(grep -oE '^PORT=.*' "$ENV_FILE" 2>/dev/null | cut -d= -f2 || true)
+    echo "http://<this-host>:${port:-3000}   (자체 프록시/직접 접속)"
   fi
 }
 
 cmd_update() {
   need_root update
-  # Preserve the install's HTTPS mode (Caddy host / --no-caddy) across updates.
+  # Preserve the install's HTTPS mode across updates.
+  #   NIMBO_CADDY = "auto" (re-detect IP) | "none" (--no-caddy) | "<host>" (--caddy host)
+  # `|| true`: a legacy install has no NIMBO_CADDY line; grep's exit 1 must not
+  # abort under set -e/pipefail (else `nimbo update` silently no-ops).
   local mode args=()
-  mode=$(grep -oE '^NIMBO_CADDY=.*' "$ENV_FILE" 2>/dev/null | cut -d= -f2)
-  if [[ "$mode" == "none" ]]; then
-    args=(--no-caddy)
-  elif [[ -n "$mode" ]]; then
-    args=(--caddy "$mode")
+  mode=$(grep -oE '^NIMBO_CADDY=.*' "$ENV_FILE" 2>/dev/null | cut -d= -f2 || true)
+  if [[ -z "$mode" ]]; then
+    # Legacy install: infer from the Caddyfile (present → keep Caddy+host; absent → own proxy).
+    if [[ -f "$CADDYFILE" ]]; then
+      mode=$(awk 'NF{gsub(/ *\{.*/,"");gsub(/:.*/,"");print;exit}' "$CADDYFILE")
+    else
+      mode=none
+    fi
   fi
+  case "$mode" in
+    auto) : ;;                    # re-detect the current IP → no --caddy arg
+    none) args=(--no-caddy) ;;
+    *)    args=(--caddy "$mode") ;;
+  esac
   echo "==> 최신 버전으로 업데이트 (HTTPS: ${mode:-자동})"
-  curl -fsSL "$BOOTSTRAP" | bash -s -- "${args[@]}"
+  # ${args[@]+...} keeps set -u happy when args is empty (bash < 4.4 safe).
+  curl -fsSL "$BOOTSTRAP" | bash -s -- ${args[@]+"${args[@]}"}
 }
 
 cmd_uninstall() {
@@ -92,10 +106,11 @@ cmd_uninstall() {
     rm -f "$CADDYFILE"
     systemctl reload caddy 2>/dev/null || systemctl stop caddy 2>/dev/null || true
   else
-    echo "   설정(/etc/nimbo)·서비스 계정(nimbo)·Caddy는 보존했습니다."
-    echo "   완전 삭제는:  sudo nimbo uninstall --purge"
+    echo "   보존됨: /etc/nimbo (NIMBO_SECRET·로그인 IP 허용목록·users.json) · nimbo 계정 · Caddy."
+    echo "   ⚠ Caddy는 계속 443을 점유하지만 앱이 없어 502가 납니다. 보안 리셋/완전 삭제는:  sudo nimbo uninstall --purge"
+    echo "   (참고) /etc/fail2ban/jail.d/sshd.local 은 SSH 보호용이라 남겨둡니다."
   fi
-  rm -f /usr/local/bin/nimbo
+  rm -f /usr/local/bin/nimbo /usr/sbin/nimbo
   echo "✅ 제거 완료."
 }
 

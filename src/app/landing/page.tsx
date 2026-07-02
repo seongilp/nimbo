@@ -391,7 +391,8 @@ export default function LandingPage() {
                 <li className="flex items-start gap-3">
                   <Lock className="mt-0.5 size-4 shrink-0 text-sky-500" />
                   <span className="text-muted-foreground">
-                    HTTPS는 Caddy 리버스 프록시로 자동 TLS 발급.
+                    HTTPS가 기본 — Caddy가 서버 IP엔 자체 서명, 도메인엔
+                    Let&apos;s Encrypt 인증서를 자동 발급.
                   </span>
                 </li>
                 <li className="flex items-start gap-3">

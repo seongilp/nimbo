@@ -120,6 +120,19 @@ if the app is exposed directly, those headers are spoofable.
 
 ## 제거 (Uninstall)
 
+한 줄이면 됩니다. root로 실행하세요.
+
+```bash
+sudo nimbo uninstall            # 서비스 · 앱 번들 · sudo 규칙 · fail2ban jail 제거
+sudo nimbo uninstall --purge    # 위 + /etc/nimbo · nimbo 계정 · /etc/caddy/Caddyfile 까지 삭제
+```
+
+> 설치 시 함께 들어오는 `nimbo` 관리 CLI로 운영할 수 있습니다:
+> `nimbo status | logs [app|term|caddy] | restart | update | url | uninstall [--purge]`.
+
+<details>
+<summary>수동 제거 (fallback) — <code>nimbo</code> CLI를 못 쓰는 경우</summary>
+
 `install.sh`가 설치한 모든 것을 되돌립니다. root로 실행하세요.
 
 ```bash
@@ -146,9 +159,10 @@ sudo rm -rf /etc/nimbo
 # 5) 서비스 계정 제거 (홈 디렉터리 · docker 그룹 멤버십 포함)
 sudo userdel -r nimbo 2>/dev/null || true
 
-# 6) (선택) 설치 시 --caddy 를 썼다면 Caddy 설정도
-# sudo rm -f /etc/caddy/Caddyfile && sudo systemctl reload caddy
+# 6) Caddy 설정 (기본 설치됨 — --no-caddy 로 건너뛴 게 아니라면)
+sudo rm -f /etc/caddy/Caddyfile && sudo systemctl reload caddy 2>/dev/null || true
 ```
+</details>
 
 ## Security notes
 

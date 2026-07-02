@@ -24,12 +24,20 @@ systemd로 돌리면: Docker가 죽어도 콘솔은 살아있고 → **콘솔이
 
 ## 1. systemd로 띄우는 방법 (권장)
 
-한 줄 설치:
+한 줄 설치 (기본: Caddy HTTPS · 서버 IP 자동 감지 · 자체 서명 인증서):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/seongilp/nimbo/main/deploy/bootstrap.sh | sudo bash
+```
+
+또는 소스에서 직접:
 
 ```bash
 git clone <repo> nimbo && cd nimbo
-sudo ./deploy/install.sh --port 3000      # --port 다음이 포트 (생략 시 3000)
-# HTTPS까지 한 번에:  sudo ./deploy/install.sh --port 3000 --caddy nas.example.com
+sudo ./deploy/install.sh                       # 기본값: Caddy로 https://<서버-IP> (자체 서명)
+# 도메인에 진짜 인증서:  sudo ./deploy/install.sh --caddy nas.example.com   # https://nas.example.com
+# 직접 리버스 프록시 운영:  sudo ./deploy/install.sh --no-caddy            # 앱은 http://<서버-IP>:포트
+# 포트 지정:  --port 3000  (생략 시 3000 · 443이 쓰이는 중이면 10443 자동)
 ```
 
 `install.sh`가 하는 일:
@@ -37,6 +45,7 @@ sudo ./deploy/install.sh --port 3000      # --port 다음이 포트 (생략 시 
 2. `/opt/nimbo` 에 번들 + 정적 파일 복사
 3. `/etc/nimbo/nimbo.env` 설정 파일 생성(포트 등) + **`NIMBO_SECRET` 자동 생성**(세션 서명 키). 파일은 `chmod 600`, `certs/`는 `chmod 700`으로 잠근다.
 4. `deploy/nimbo.service` 를 `/etc/systemd/system/` 에 설치하고 `systemctl enable --now`
+5. **(기본) Caddy 설치·설정** → 443에서 HTTPS, 앱은 `127.0.0.1:3000` 루프백 전용(외부 직접 노출 없음). 터미널 PTY 사이드카·fail2ban·`nimbo` 관리 CLI(`/usr/local/bin/nimbo`)도 함께 설치. `--no-caddy`면 Caddy를 건너뛰고 앱을 `http://<서버-IP>:포트`에 둔다.
 
 핵심 유닛 설정 (`deploy/nimbo.service`):
 
@@ -64,6 +73,10 @@ systemctl restart nimbo     # 재시작 (설정 변경 후)
 journalctl -u nimbo -f      # 실시간 로그
 ```
 
+> **`nimbo` 관리 CLI**(설치 스크립트가 `/usr/local/bin/nimbo`에 함께 설치):
+> `nimbo status | logs [app|term|caddy] | restart | update | url | uninstall [--purge] | help`.
+> 한 방에 제거: `sudo nimbo uninstall` (`--purge`면 `/etc/nimbo`·`nimbo` 계정·`/etc/caddy/Caddyfile`까지 삭제).
+
 > **수동 systemd 등록**(스크립트 없이): `npm run build` → `.next/standalone` 통째로 `/opt/nimbo`에 복사하고 `.next/static`·`public`도 같이 복사 → 위 유닛 파일을 `/etc/systemd/system/`에 두고 `systemctl daemon-reload && systemctl enable --now nimbo`.
 
 ---
@@ -89,16 +102,23 @@ sudo systemctl restart nimbo
 
 ---
 
-## 3. 앞단에 Caddy(웹서버) 꼭 필요한가?
+## 3. 앞단의 Caddy(HTTPS) — 이제 기본값
 
-**필수는 아니지만 HTTPS를 쓰려면 권장.** 선택지:
+**Caddy는 이제 기본으로 설치된다.** `install.sh`가 Caddy를 깔고 443에서 TLS를 종료하며,
+앱은 `127.0.0.1:3000`(루프백 전용)에 묶여 외부로 직접 노출되지 않는다. 도메인을 안 주면
+서버 IP를 자동 감지해 자체 서명 인증서로 `https://<서버-IP>`를, `--caddy <도메인>`을 주면
+그 도메인에 진짜 Let's Encrypt 인증서를 발급한다. (443이 이미 쓰이면 10443으로, 그것도
+막혀 있으면 사용할 포트를 물어본다.)
 
 | 상황 | 방법 |
 |---|---|
-| 신뢰된 LAN, HTTP면 충분 | 프록시 없이 `HOSTNAME=0.0.0.0` → `http://nas-ip:포트` 직접 접속 |
-| HTTPS 원함 (권장) | **Caddy**를 앞단에 — 443에서 TLS 종료, 자동 인증서, HTTP→HTTPS 리다이렉트 |
+| 기본 (도메인 없음) | 그냥 설치 → `https://<서버-IP>` (자체 서명, `tls internal`) |
+| 공개 도메인 있음 | `--caddy nas.example.com` → 진짜 Let's Encrypt 자동 |
+| 직접 리버스 프록시 운영 | `--no-caddy` → 앱은 `http://<서버-IP>:포트`, 프록시는 직접 라우팅 |
 
-앱은 `127.0.0.1:3000`에서 평문 HTTP만 말하고, TLS는 Caddy가 처리한다. `deploy/Caddyfile` 제공:
+설치 스크립트가 Caddy 설치와 `/etc/caddy/Caddyfile` 생성을 자동으로 처리한다. 앱은
+`127.0.0.1:3000`에서 평문 HTTP만 말하고 TLS는 Caddy가 처리한다. 수동으로 설정하려면
+`deploy/Caddyfile`을 참고한다:
 
 ```bash
 sudo apt install caddy            # 또는 배포판 패키지
@@ -110,8 +130,11 @@ sudo systemctl reload caddy
 - **LAN 전용, 도메인 없음** → `tls internal` (Caddy 자체 CA) 또는 DNS 챌린지로 진짜 인증서
 - 앱의 **Certificates 앱**이 인증서 발급/자체서명/가져오기와 HTTP/HTTPS 포트 정책을 관리한다 (실제 TLS 종료는 이 프록시가 수행).
 
-nginx를 이미 쓴다면 Caddy 대신 아래처럼 프록시한다. `X-Forwarded-Proto`를 꼭 전달해야
-세션 쿠키에 `Secure` 플래그가 붙는다(HSTS·보안 헤더는 nginx `add_header`로 별도 설정).
+### 직접 프록시를 쓸 때 (`--no-caddy`)
+
+`--no-caddy`로 설치하면 Caddy를 건너뛰고 앱이 `http://<서버-IP>:포트`에 뜬다. 이미 nginx를
+쓴다면 아래처럼 프록시한다. `X-Forwarded-Proto`를 꼭 전달해야 세션 쿠키에 `Secure`
+플래그가 붙는다(HSTS·보안 헤더는 nginx `add_header`로 별도 설정).
 
 ```nginx
 # 터미널 앱: WebSocket 사이드카(node-pty)를 먼저 라우팅한다. 이 블록이 없으면
@@ -134,8 +157,8 @@ location / {
 
 > **터미널 교차 출처 차단(권장).** 자체 프록시를 쓸 때는 `/etc/nimbo/nimbo.env`에
 > `NIMBO_ORIGIN=https://<접속-호스트>`를 추가하고 `sudo systemctl restart nimbo-terminal`.
-> 그러면 PTY WebSocket이 해당 Origin만 허용한다(CSWSH 방어). `--caddy`로 설치하면
-> 자동 설정된다.
+> 그러면 PTY WebSocket이 해당 Origin만 허용한다(CSWSH 방어). Caddy 기본 모드로
+> 설치하면 자동 설정된다.
 
 > **프록시 뒤 바인딩(중요).** 프록시를 쓸 때는 앱을 반드시 `HOSTNAME=127.0.0.1`로
 > 바인딩해 외부에서 직접 닿지 못하게 하라. 앱은 클라이언트 IP를(쿠키 `Secure` 판정과

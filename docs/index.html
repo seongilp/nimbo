@@ -154,7 +154,7 @@
   </p>
 
   <div class="install">
-    <div class="label">한 줄이면 설치 — Node·git 자동 설치, 빌드, systemd 등록까지</div>
+    <div class="label">한 줄이면 설치 — Node·git 자동 설치, 빌드, systemd 등록, HTTPS까지</div>
     <div class="code" onclick="copyCmd(this)" title="클릭하면 복사됩니다">
       <span class="prompt">$</span>
       <code id="cmd">curl -fsSL https://raw.githubusercontent.com/seongilp/nimbo/main/deploy/bootstrap.sh | sudo bash</code>
@@ -227,7 +227,7 @@
       <code id="cmd2">curl -fsSL https://raw.githubusercontent.com/seongilp/nimbo/main/deploy/bootstrap.sh | sudo bash</code>
       <button class="copy" onclick="event.stopPropagation();copyCmd(this.closest('.code'))">복사</button>
     </div>
-    <p class="why" style="margin:18px 0 0">HTTPS는 Caddy 리버스 프록시로: <code>… | sudo bash -s -- --caddy your.domain</code> · 포트 변경은 <code>/etc/nimbo/nimbo.env</code>.</p>
+    <p class="why" style="margin:18px 0 0">기본이 HTTPS입니다 — Caddy가 서버 IP를 자동 감지해 자체 서명 인증서로 <code>https://서버IP</code>를 바로 서비스합니다. 도메인이 있으면 <code>… | sudo bash -s -- --caddy your.domain</code>으로 Let's Encrypt 정식 인증서. 직접 리버스 프록시를 운영한다면 <code>--no-caddy</code>. 포트 변경은 <code>/etc/nimbo/nimbo.env</code>.</p>
   </div>
 </div></section>
 

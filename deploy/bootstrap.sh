@@ -2,10 +2,13 @@
 # Nimbo one-line bootstrap. Installs git if needed, clones the repo, and runs
 # the one-shot installer (which installs Node.js, builds, and sets up systemd).
 #
+# 기본값은 Caddy(HTTPS/443): 서버 IP를 자동 감지해 self-signed 인증서로 https://<ip> 제공.
 #   curl -fsSL https://raw.githubusercontent.com/seongilp/nimbo/main/deploy/bootstrap.sh | sudo bash
 #
-# Pass installer args through after `-s --`, e.g. HTTPS via Caddy:
-#   curl -fsSL .../bootstrap.sh | sudo bash -s -- --caddy nas.lan
+# Pass installer args through after `-s --`:
+#   --caddy <domain>  실제 도메인에 Let's Encrypt 인증서(https://domain)
+#   --no-caddy        Caddy 생략 (직접 리버스 프록시 운영 시). 앱은 http://<ip>:PORT
+#   e.g.  curl -fsSL .../bootstrap.sh | sudo bash -s -- --caddy nas.example.com
 set -euo pipefail
 
 REPO="${NIMBO_REPO:-https://github.com/seongilp/nimbo}"

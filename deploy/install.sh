@@ -142,11 +142,16 @@ systemctl stop nimbo 2>/dev/null || true
 PORT=$(choose_port "$PORT" "Nimbo")
 [[ "$USE_CADDY" == 1 ]] && HTTPS_PORT=$(choose_https_port)
 
-# ── build ────────────────────────────────────────────────────────────────
-echo "==> 의존성 설치 & 빌드 (시간이 좀 걸립니다)"
+# ── build (skipped for a prebuilt release bundle) ─────────────────────────
 cd "$SRC"
-npm ci
-npm run build   # output: 'standalone'
+if [[ -f "$SRC/PREBUILT" ]]; then
+  echo "==> 프리빌트 번들 감지 ($(cat "$SRC/PREBUILT" 2>/dev/null || echo '?')) — 서버 빌드 생략"
+  [[ -f "$SRC/.next/standalone/server.js" ]] || { echo "프리빌트 번들이 손상됨(.next/standalone 없음)" >&2; exit 1; }
+else
+  echo "==> 의존성 설치 & 빌드 (시간이 좀 걸립니다)"
+  npm ci
+  npm run build   # output: 'standalone'
+fi
 
 # ── install bundle ───────────────────────────────────────────────────────
 echo "==> $APP_DIR 에 설치"
@@ -209,27 +214,35 @@ TERM_DIR=/opt/nimbo-terminal
 TERM_OK=0
 systemctl stop nimbo-terminal 2>/dev/null || true   # re-run: don't hold stale code/port
 rm -rf "$TERM_DIR"; mkdir -p "$TERM_DIR"
-cp "$SRC/deploy/terminal-pty/package.json" "$SRC/deploy/terminal-pty/server.js" "$TERM_DIR/"
-[[ -f "$SRC/deploy/terminal-pty/package-lock.json" ]] && cp "$SRC/deploy/terminal-pty/package-lock.json" "$TERM_DIR/"
-# node-gyp needs a C/C++ toolchain to compile node-pty.
-case "$PKG" in
-  dnf|yum) pkg_install gcc-c++ make python3 >/dev/null 2>&1 || true ;;
-  apt)     pkg_install build-essential python3 >/dev/null 2>&1 || true ;;
-esac
-term_build() { # prefer reproducible `npm ci` (lockfile present), else plain install
+# Copy the whole dir — a prebuilt bundle ships node_modules (CI-built node-pty).
+cp -r "$SRC/deploy/terminal-pty/." "$TERM_DIR/"
+
+# node-pty loads? (prebuilt bundle on a matching arch → no rebuild needed)
+term_ready() { node -e "require('$TERM_DIR/node_modules/node-pty')" >/dev/null 2>&1; }
+term_build() {
+  case "$PKG" in   # node-gyp needs a C/C++ toolchain
+    dnf|yum) pkg_install gcc-c++ make python3 >/dev/null 2>&1 || true ;;
+    apt)     pkg_install build-essential python3 >/dev/null 2>&1 || true ;;
+  esac
   if [[ -f "$TERM_DIR/package-lock.json" ]]; then
     ( cd "$TERM_DIR" && npm ci --omit=dev --no-audit --no-fund )
   else
     ( cd "$TERM_DIR" && npm install --omit=dev --no-audit --no-fund )
   fi
 }
-if term_build; then
+if term_ready; then
+  echo "   프리빌트 node-pty 사용 (재빌드 생략)"
+  TERM_OK=1
+elif term_build && term_ready; then
+  TERM_OK=1
+fi
+
+if [[ "$TERM_OK" == 1 ]]; then
   chown -R "$SVC_USER:$SVC_USER" "$TERM_DIR"
   cp "$SRC/deploy/nimbo-terminal.service" /etc/systemd/system/nimbo-terminal.service
   systemctl daemon-reload
   systemctl enable nimbo-terminal >/dev/null 2>&1 || true
   systemctl restart nimbo-terminal || true
-  TERM_OK=1
   echo "   nimbo-terminal.service 등록됨 (127.0.0.1:3001, 셸은 nimbo 권한 · sudo로 승격)"
 else
   echo "   ⚠ node-pty 빌드 실패 — 터미널 앱을 건너뜁니다(나머지 설치는 계속). 빌드 도구 설치 후 재실행하면 활성화됩니다." >&2

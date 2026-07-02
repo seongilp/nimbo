@@ -1,0 +1,52 @@
+name: release
+
+# Builds a prebuilt distribution bundle so servers install without compiling.
+# Trigger: push a version tag (v*), or run manually.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Build app (Next.js standalone)
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build terminal sidecar (node-pty, x64)
+        run: |
+          cd deploy/terminal-pty
+          npm ci --omit=dev --no-audit --no-fund
+
+      - name: Assemble dist bundle
+        run: |
+          mkdir -p dist/.next
+          cp -r .next/standalone dist/.next/standalone
+          cp -r .next/static dist/.next/static
+          [ -d public ] && cp -r public dist/public || true
+          cp -r deploy dist/deploy
+          cp package.json dist/ 2>/dev/null || true
+          # Marker: install.sh skips `npm ci && npm run build` when this exists.
+          echo "$GITHUB_REF_NAME" > dist/PREBUILT
+          tar -czf nimbo-dist.tar.gz -C dist .
+          echo "bundle size:"; du -h nimbo-dist.tar.gz
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: nimbo-dist.tar.gz
+          generate_release_notes: true
+          fail_on_unmatched_files: true

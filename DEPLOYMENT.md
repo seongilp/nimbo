@@ -77,6 +77,17 @@ journalctl -u nimbo -f      # 실시간 로그
 > `nimbo status | logs [app|term|caddy] | restart | update | url | uninstall [--purge] | help`.
 > 한 방에 제거: `sudo nimbo uninstall` (`--purge`면 `/etc/nimbo`·`nimbo` 계정·`/etc/caddy/Caddyfile`까지 삭제).
 
+### 프리빌트 번들 vs 소스 빌드
+
+`bootstrap.sh`는 기본적으로 **프리빌트 릴리스 번들**(`…/releases/latest/download/nimbo-dist.tar.gz`)을
+받아 서버 빌드 없이 설치합니다. GitHub Actions(`.github/workflows/release.yml`)가 태그(`v*`) 푸시 때
+Next.js standalone + 터미널 사이드카(node-pty, x64)를 빌드해 릴리스 자산으로 올립니다.
+
+- 릴리스가 없거나 다운로드 실패 → **소스 클론 + 서버 빌드**로 자동 폴백. `NIMBO_SOURCE=1`로 강제.
+- 번들 안의 `PREBUILT` 마커를 보고 `install.sh`가 `npm ci && npm run build`를 건너뜁니다.
+- 터미널 사이드카는 x64 프리빌트 node-pty를 그대로 쓰고(로드 확인), arch가 다르면 서버에서 재빌드(best-effort).
+- 앱 실행에는 Node.js 런타임이 필요하므로 `install.sh`가 Node 20을 설치합니다(빌드 툴체인은 불필요).
+
 > **수동 systemd 등록**(스크립트 없이): `npm run build` → `.next/standalone` 통째로 `/opt/nimbo`에 복사하고 `.next/static`·`public`도 같이 복사 → 위 유닛 파일을 `/etc/systemd/system/`에 두고 `systemctl daemon-reload && systemctl enable --now nimbo`.
 
 ---

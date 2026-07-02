@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://seongilp.github.io/nimbo/"><strong>🌐 Website / 소개 페이지</strong></a>
   &nbsp;·&nbsp;
-  <a href="#1-systemd로-띄우는-방법-권장">📦 한 줄 설치</a>
+  <a href="INSTALL.md">📦 설치 가이드</a>
   &nbsp;·&nbsp;
   <a href="MANUAL.md">📖 사용 매뉴얼</a>
   &nbsp;·&nbsp;

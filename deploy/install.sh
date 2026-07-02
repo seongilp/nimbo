@@ -322,9 +322,14 @@ else
 fi
 
 # ── management CLI (nimbo status/logs/update/uninstall) ──────────────────
-install -m 0755 "$SRC/deploy/nimbo-cli.sh" /usr/local/bin/nimbo 2>/dev/null \
-  && echo "==> 'nimbo' 명령 설치됨 (nimbo help)" \
-  || echo "⚠ nimbo CLI 설치 실패 (/usr/local/bin 쓰기 불가)" >&2
+# /usr/local/bin for interactive use (in every user's PATH); a /usr/sbin symlink
+# so `sudo nimbo` resolves too (RHEL's sudo secure_path omits /usr/local/bin).
+if install -m 0755 "$SRC/deploy/nimbo-cli.sh" /usr/local/bin/nimbo 2>/dev/null; then
+  ln -sf /usr/local/bin/nimbo /usr/sbin/nimbo 2>/dev/null || true
+  echo "==> 'nimbo' 명령 설치됨 (nimbo help)"
+else
+  echo "⚠ nimbo CLI 설치 실패 (/usr/local/bin 쓰기 불가)" >&2
+fi
 
 # ── done ─────────────────────────────────────────────────────────────────
 echo ""

@@ -58,9 +58,14 @@ cmd_update() {
 
 cmd_uninstall() {
   need_root uninstall
-  local purge=0
-  [[ "${1:-}" == "--purge" ]] && purge=1
-  if [[ -e /dev/tty ]]; then
+  local purge=0 yes=0
+  for a in "$@"; do
+    case "$a" in
+      --purge) purge=1 ;;
+      --yes|-y) yes=1 ;;
+    esac
+  done
+  if [[ $yes == 0 && -e /dev/tty ]]; then
     local ans=""
     read -rp "Nimbo를 제거합니다$([[ $purge == 1 ]] && echo ' (--purge: 설정·계정까지 완전 삭제)'). 계속할까요? [y/N] " ans < /dev/tty || true
     [[ "$ans" =~ ^[yY]$ ]] || { echo "취소했습니다."; exit 0; }
@@ -103,7 +108,7 @@ Nimbo 관리 CLI
   nimbo restart                서비스 재시작                    (sudo)
   nimbo update                 최신 버전으로 업데이트            (sudo)
   nimbo url                    접속 주소 출력
-  nimbo uninstall [--purge]    제거 (--purge: 설정·계정까지)     (sudo)
+  nimbo uninstall [--purge] [--yes]  제거 (--purge: 설정·계정까지, --yes: 확인 생략) (sudo)
   nimbo help                   이 도움말
 H
 }

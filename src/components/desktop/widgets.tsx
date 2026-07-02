@@ -25,6 +25,8 @@ function Gauge({ label, pct, accent }: { label: string; pct: number; accent: str
 function ClockBody() {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
+    // Filled in on mount so SSR renders a stable "--:--" (avoids hydration mismatch).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
@@ -127,7 +129,7 @@ function WidgetShell({ w, onMove, onRemove, children }: {
         data-widget-remove
         onClick={() => onRemove(w.id)}
         aria-label="위젯 제거"
-        className="absolute -right-2 -top-2 hidden size-5 items-center justify-center rounded-full bg-foreground text-background shadow-soft group-hover:flex"
+        className="absolute -right-2 -top-2 hidden size-5 items-center justify-center rounded-full bg-foreground text-background shadow-soft group-hover:flex pointer-coarse:flex"
       >
         <X className="size-3" />
       </button>

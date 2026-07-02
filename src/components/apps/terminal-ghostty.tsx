@@ -12,7 +12,7 @@ import { Loader2, Plug, RotateCw } from "lucide-react";
 // the PTY sidecar by Caddy.
 const WS_OVERRIDE = process.env.NEXT_PUBLIC_TERMINAL_WS_URL || "";
 
-type Status = "loading" | "connecting" | "open" | "closed" | "error";
+type Status = "loading" | "connecting" | "open" | "closed" | "error" | "forbidden";
 
 function wsUrl(): string {
   if (WS_OVERRIDE) return WS_OVERRIDE;
@@ -70,7 +70,11 @@ export function TerminalGhostty() {
       ws.onmessage = (e: MessageEvent) => {
         term.write(typeof e.data === "string" ? e.data : new Uint8Array(e.data as ArrayBuffer));
       };
-      ws.onclose = () => !disposed && setStatus((s) => (s === "error" ? s : "closed"));
+      ws.onclose = (e: CloseEvent) => {
+        if (disposed) return;
+        // 1008 = server-side policy close (non-admin, or forbidden origin) — no retry.
+        setStatus((s) => (e.code === 1008 ? "forbidden" : s === "error" ? s : "closed"));
+      };
       ws.onerror = () => !disposed && setStatus("error");
 
       term.onData((d: string) => {
@@ -124,6 +128,12 @@ export function TerminalGhostty() {
               <button onClick={() => setAttempt((a) => a + 1)} className="ml-auto inline-flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-slate-200 hover:bg-white/20">
                 <RotateCw className="size-3" /> 재시도
               </button>
+            </>
+          )}
+          {status === "forbidden" && (
+            <>
+              <Plug className="size-3.5 text-rose-400" />
+              <span className="text-slate-300">터미널은 관리자만 사용할 수 있습니다. (권한 또는 출처 거부)</span>
             </>
           )}
         </div>

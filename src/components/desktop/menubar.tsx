@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Moon, Sun, Cpu, Thermometer, Cloud, Search, LayoutGrid, Copy, Minus, X, LogOut, Star, ImagePlus, Check } from "lucide-react";
+import { toast } from "sonner";
 
 import { APP_MAP, APPS } from "./app-registry";
 import {
@@ -32,6 +33,8 @@ import type { SystemOverview } from "@/lib/types";
 function Clock() {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
+    // Filled in on mount so SSR renders "--:--" (avoids a hydration mismatch).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
@@ -80,13 +83,18 @@ export function MenuBar() {
         canvas.height = h;
         canvas.getContext("2d")?.drawImage(img, 0, 0, w, h);
         try {
-          setCustomImage(canvas.toDataURL("image/jpeg", 0.85));
+          const ok = setCustomImage(canvas.toDataURL("image/jpeg", 0.85));
+          toast[ok ? "success" : "error"](
+            ok ? "배경화면을 변경했습니다" : "이미지가 너무 커서 배경화면으로 저장할 수 없습니다. 더 작은 이미지를 써주세요."
+          );
         } catch {
-          /* ignore */
+          toast.error("이미지를 처리할 수 없습니다.");
         }
       };
+      img.onerror = () => toast.error("이미지를 불러올 수 없습니다.");
       img.src = reader.result as string;
     };
+    reader.onerror = () => toast.error("파일을 읽을 수 없습니다.");
     reader.readAsDataURL(file);
   }
 

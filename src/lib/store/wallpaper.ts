@@ -12,7 +12,8 @@ interface WallpaperStore {
   id: string;
   customImage: string | null; // data URL, or null
   setWallpaper: (id: string) => void;
-  setCustomImage: (dataUrl: string | null) => void;
+  /** Returns false when the image couldn't be persisted (localStorage quota). */
+  setCustomImage: (dataUrl: string | null) => boolean;
   load: () => void;
 }
 
@@ -24,19 +25,22 @@ export const useWallpaperStore = create<WallpaperStore>((set) => ({
     set({ id });
   },
   setCustomImage: (dataUrl) => {
-    if (typeof window !== "undefined") {
-      if (dataUrl) {
+    if (dataUrl) {
+      if (typeof window !== "undefined") {
         try {
           localStorage.setItem(CUSTOM_KEY, dataUrl);
           localStorage.setItem(KEY, CUSTOM_WALLPAPER_ID);
         } catch {
-          // localStorage quota — image too large even after downscale
+          // Quota exceeded — don't switch to a wallpaper that won't survive reload.
+          return false;
         }
-      } else {
-        localStorage.removeItem(CUSTOM_KEY);
       }
+      set({ customImage: dataUrl, id: CUSTOM_WALLPAPER_ID });
+      return true;
     }
-    set(dataUrl ? { customImage: dataUrl, id: CUSTOM_WALLPAPER_ID } : { customImage: null });
+    if (typeof window !== "undefined") localStorage.removeItem(CUSTOM_KEY);
+    set({ customImage: null });
+    return true;
   },
   load: () => {
     if (typeof window === "undefined") return;

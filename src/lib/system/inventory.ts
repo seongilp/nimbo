@@ -256,8 +256,14 @@ async function readSnapshot(): Promise<Record<string, SnapEntry>> {
   }
 }
 
+// Only one snapshot record may run at a time. getInventory() fires this on
+// every poll (8s) and on the export view; concurrent runs would double-append
+// disk-history.jsonl and clobber disk-snapshot.json. Overlapping polls simply
+// skip — the next poll captures any change they missed.
+let snapshotInFlight = false;
 async function recordInventorySnapshot(items: DiskInventoryItem[]): Promise<void> {
-  if (USE_MOCK) return;
+  if (USE_MOCK || snapshotInFlight) return;
+  snapshotInFlight = true;
   try {
     const prev = await readSnapshot();
     const isFirst = Object.keys(prev).length === 0;
@@ -296,6 +302,8 @@ async function recordInventorySnapshot(items: DiskInventoryItem[]): Promise<void
     if (isFirst || changes.length) await writeFile(SNAPSHOT_FILE, JSON.stringify(cur, null, 2), "utf8");
   } catch {
     // best-effort — history is non-critical
+  } finally {
+    snapshotInFlight = false;
   }
 }
 

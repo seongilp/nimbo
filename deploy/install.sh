@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Nimbo one-shot installer — installs prerequisites (Node.js, git), builds the
 # app, creates a dedicated `nimbo` service account (passwordless sudo), and runs
-# it as a systemd service. Optionally sets up Caddy (HTTPS).
+# it as a systemd service behind Caddy (HTTPS on 443).
 #
-#   sudo ./deploy/install.sh [--port N] [--caddy <domain-or-ip>]
+#   sudo ./deploy/install.sh [--port N] [--caddy <domain-or-ip>] [--no-caddy]
+#
+# Caddy(HTTPS/443)가 기본값이다. --caddy 없이 실행하면 서버 IP를 자동 감지해
+# 자체 서명 인증서로 https://<서버-IP> 를 띄운다. --caddy <도메인>이면 진짜 인증서.
+# 이미 리버스 프록시가 있으면 --no-caddy 로 Caddy를 건너뛰고 앱을 127.0.0.1:PORT에
+# 둔 뒤 직접 라우팅하라.
 set -euo pipefail
 
 APP_DIR=/opt/nimbo
@@ -11,16 +16,26 @@ ENV_DIR=/etc/nimbo
 SVC_USER=nimbo
 PORT=3000
 CADDY_HOST=""
+USE_CADDY=1        # HTTPS via Caddy on 443 by default; --no-caddy opts out
 HTTPS_PORT=443
 NODE_MAJOR=20
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --port) PORT="$2"; shift 2 ;;
-    --caddy) CADDY_HOST="$2"; shift 2 ;;
+    --caddy) CADDY_HOST="$2"; USE_CADDY=1; shift 2 ;;
+    --no-caddy) USE_CADDY=0; shift ;;
     *) echo "알 수 없는 옵션: $1" >&2; exit 1 ;;
   esac
 done
+
+# Primary IPv4 of this host (default route source), for the auto Caddy target.
+detect_ip() {
+  local ip=""
+  ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
+  [[ -z "$ip" ]] && ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  echo "$ip"
+}
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 [[ $EUID -eq 0 ]] || { echo "root로 실행해야 합니다:  sudo ./deploy/install.sh" >&2; exit 1; }
@@ -49,6 +64,23 @@ choose_port() { # $1 wanted, $2 label
   fi
   echo "$p"
 }
+# HTTPS port for Caddy: prefer 443, fall back to 10443, then prompt (or auto-pick).
+choose_https_port() {
+  if ! port_in_use 443; then echo 443; return; fi
+  if ! port_in_use 10443; then
+    echo "⚠ 443 사용 중 → 10443 사용" >&2
+    echo 10443; return
+  fi
+  if [[ -e /dev/tty ]]; then
+    local ans=""
+    read -rp "⚠ 443·10443 모두 사용 중. 사용할 HTTPS 포트 입력: " ans < /dev/tty || true
+    if [[ "$ans" =~ ^[0-9]+$ ]] && (( ans >= 1 && ans <= 65535 )) && ! port_in_use "$ans"; then
+      echo "$ans"; return
+    fi
+    echo "⚠ 입력이 비었거나 사용 중인 포트 → 자동 선택" >&2
+  fi
+  free_port 10444
+}
 
 # ── prerequisites: curl, git, node, ss ───────────────────────────────────
 command -v curl >/dev/null || pkg_install curl ca-certificates
@@ -68,6 +100,17 @@ if ! node_ok; then
 fi
 node_ok || { echo "Node.js 설치 실패" >&2; exit 1; }
 echo "==> Node $(node --version)"
+
+# ── Caddy target: default to the server's own IP (self-signed) unless given ──
+if [[ "$USE_CADDY" == 1 && -z "$CADDY_HOST" ]]; then
+  CADDY_HOST="$(detect_ip)"
+  if [[ -z "$CADDY_HOST" ]]; then
+    echo "⚠ 서버 IP 자동 감지 실패 — 도메인/IP를 지정하세요:  --caddy <도메인-또는-IP>" >&2
+    echo "  (또는 --no-caddy 로 Caddy 없이 설치)" >&2
+    exit 1
+  fi
+  echo "==> Caddy 대상 자동 감지: $CADDY_HOST (자체 서명 인증서)"
+fi
 
 # ── dedicated service account (passwordless sudo) ────────────────────────
 echo "==> 서비스 계정 '$SVC_USER' 준비"
@@ -90,11 +133,11 @@ visudo -cf /etc/sudoers.d/nimbo >/dev/null || { rm -f /etc/sudoers.d/nimbo; echo
 # (Re-run safety: a running instance holding 3000/443/80 would otherwise make
 # choose_port bump to the next free port and silently move the site.)
 systemctl stop nimbo 2>/dev/null || true
-[[ -n "$CADDY_HOST" ]] && systemctl stop caddy 2>/dev/null || true
+[[ "$USE_CADDY" == 1 ]] && systemctl stop caddy 2>/dev/null || true
 
 # ── port selection ───────────────────────────────────────────────────────
 PORT=$(choose_port "$PORT" "Nimbo")
-[[ -n "$CADDY_HOST" ]] && HTTPS_PORT=$(choose_port "$HTTPS_PORT" "HTTPS")
+[[ "$USE_CADDY" == 1 ]] && HTTPS_PORT=$(choose_https_port)
 
 # ── build ────────────────────────────────────────────────────────────────
 echo "==> 의존성 설치 & 빌드 (시간이 좀 걸립니다)"
@@ -117,12 +160,15 @@ set_env() { if grep -q "^$1=" "$ENV_DIR/nimbo.env"; then sed -i "s#^$1=.*#$1=$2#
 set_env PORT "$PORT"
 set_env NIMBO_SUDO 1
 set_env NAS_MOCK 0
-if [[ -n "$CADDY_HOST" ]]; then
-  set_env HOSTNAME "127.0.0.1"
+if [[ "$USE_CADDY" == 1 ]]; then
+  set_env HOSTNAME "127.0.0.1"   # app is loopback-only; Caddy is the only way in
+  set_env NIMBO_CADDY "$CADDY_HOST"   # remembered so `nimbo update` keeps HTTPS mode
   # Origin allow-list for the terminal WS (CSWSH defense-in-depth). Scheme is
   # https because Caddy terminates TLS; :443 is omitted (default port).
   _origin="https://$CADDY_HOST"; [[ "$HTTPS_PORT" != "443" ]] && _origin="$_origin:$HTTPS_PORT"
   set_env NIMBO_ORIGIN "$_origin"
+else
+  set_env NIMBO_CADDY "none"
 fi
 # Stable session-signing secret (generated once).
 grep -q "^NIMBO_SECRET=" "$ENV_DIR/nimbo.env" || \
@@ -184,8 +230,8 @@ else
   echo "   ⚠ node-pty 빌드 실패 — 터미널 앱을 건너뜁니다(나머지 설치는 계속). 빌드 도구 설치 후 재실행하면 활성화됩니다." >&2
 fi
 
-# ── optional Caddy (HTTPS) ───────────────────────────────────────────────
-if [[ -n "$CADDY_HOST" ]]; then
+# ── Caddy (HTTPS) — default; skipped only with --no-caddy ────────────────
+if [[ "$USE_CADDY" == 1 ]]; then
   echo "==> Caddy 설치 & 설정 ($CADDY_HOST:$HTTPS_PORT → 127.0.0.1:$PORT)"
   if ! command -v caddy >/dev/null; then
     case "$PKG" in
@@ -275,19 +321,24 @@ else
   echo "   ⚠ fail2ban 설치 실패 — 내장 락아웃(5회/15분)만 동작합니다."
 fi
 
+# ── management CLI (nimbo status/logs/update/uninstall) ──────────────────
+install -m 0755 "$SRC/deploy/nimbo-cli.sh" /usr/local/bin/nimbo 2>/dev/null \
+  && echo "==> 'nimbo' 명령 설치됨 (nimbo help)" \
+  || echo "⚠ nimbo CLI 설치 실패 (/usr/local/bin 쓰기 불가)" >&2
+
 # ── done ─────────────────────────────────────────────────────────────────
 echo ""
 echo "✅ 완료. (서비스 계정: $SVC_USER, passwordless sudo)"
-echo "   상태:   systemctl status nimbo   ·   로그: journalctl -u nimbo -f"
-if [[ -n "$CADDY_HOST" ]]; then
+echo "   상태:   nimbo status   ·   로그: nimbo logs   ·   제거: sudo nimbo uninstall"
+if [[ "$USE_CADDY" == 1 ]]; then
   echo "   접속:   https://$CADDY_HOST$([[ "$HTTPS_PORT" != 443 ]] && echo ":$HTTPS_PORT")"
 else
-  echo "   접속:   http://<this-host>:$PORT"
+  echo "   접속:   http://$(detect_ip 2>/dev/null || echo '<this-host>'):$PORT   (Caddy 없이 설치 — 직접/프록시 접속)"
 fi
 echo "   로그인: 이 서버의 OS 계정(root 등)으로 로그인"
 # The Terminal app talks to the sidecar over /api/terminal/ws (same-origin).
-# Caddy wires that automatically; without --caddy the operator's own proxy must.
-if [[ "$TERM_OK" == "1" && -z "$CADDY_HOST" ]]; then
+# Caddy wires that automatically; with --no-caddy the operator's own proxy must.
+if [[ "$TERM_OK" == "1" && "$USE_CADDY" == 0 ]]; then
   echo ""
   echo "ℹ 터미널 앱: 리버스 프록시에서 WebSocket 경로를 라우팅해야 동작합니다."
   echo "   /api/terminal/ws → 127.0.0.1:3001  (그 외 → 127.0.0.1:$PORT)"

@@ -95,16 +95,27 @@ wss.on("connection", (ws, req) => {
     return;
   }
 
+  // Open the shell AS the logged-in OS user. session.u comes from the
+  // HMAC-signed cookie, so it is trustworthy; we still restrict it to a valid
+  // username. The sidecar runs as the `nimbo` service account (passwordless
+  // sudo), so `sudo -u <user> -i` gives that user's login shell. If the user is
+  // unknown/invalid or is the service account itself, fall back to SHELL.
+  const USER_RE = /^[a-z_][a-z0-9_-]{0,31}$/;
+  const svcUser = os.userInfo().username;
+  const asUser = session.u && USER_RE.test(session.u) && session.u !== svcUser ? session.u : null;
+  const file = asUser ? "sudo" : SHELL;
+  const args = asUser ? ["-n", "-u", asUser, "-i"] : ["-l"];
+
   // Don't hand the global session-signing key to the interactive shell.
   const { NIMBO_SECRET: _omit, ...childEnv } = process.env;
-  const term = pty.spawn(SHELL, ["-l"], {
+  const term = pty.spawn(file, args, {
     name: "xterm-256color",
     cols: 80,
     rows: 24,
-    cwd: process.env.HOME || os.homedir() || "/",
+    cwd: "/", // `sudo -i` cd's to the target user's home; "/" avoids EACCES otherwise
     env: { ...childEnv, TERM: "xterm-256color", NIMBO_TERMINAL: "1" },
   });
-  console.log(`[terminal] ${session.u} opened pty ${term.pid} (${SHELL})`);
+  console.log(`[terminal] ${session.u} opened pty ${term.pid} as ${asUser ?? svcUser}`);
 
   const onData = (d) => {
     if (ws.readyState === ws.OPEN) ws.send(d);

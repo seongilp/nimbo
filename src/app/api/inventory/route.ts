@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/api/guard";
-import { clearDiskHistory, getDiskHistory, getInventory, setDiskLocation } from "@/lib/system/inventory";
+import {
+  clearDiskHistory,
+  getDiskHistory,
+  getDiskLocations,
+  getInventory,
+  importDiskLocations,
+  setDiskLocation,
+} from "@/lib/system/inventory";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,6 +19,13 @@ export async function GET(request: Request) {
     if (searchParams.get("view") === "history") {
       const data = await getDiskHistory();
       return NextResponse.json({ ok: true, data, isMock: data.isMock });
+    }
+    if (searchParams.get("view") === "export") {
+      const [inv, locations] = await Promise.all([getInventory(), getDiskLocations()]);
+      return NextResponse.json({
+        ok: true,
+        data: { exportedAt: Date.now(), disks: inv.disks, locations, isMock: inv.isMock },
+      });
     }
     const data = await getInventory();
     return NextResponse.json({ ok: true, data, isMock: data.isMock });
@@ -26,6 +40,8 @@ interface InventoryAction {
   label?: string;
   bay?: string;
   note?: string;
+  locations?: unknown;
+  mode?: string;
 }
 
 export async function POST(request: Request) {
@@ -41,6 +57,10 @@ export async function POST(request: Request) {
       }
       case "history.clear": {
         const res = await clearDiskHistory();
+        return NextResponse.json(res, { status: res.ok ? 200 : 400 });
+      }
+      case "location.import": {
+        const res = await importDiskLocations(body.locations, body.mode === "replace" ? "replace" : "merge");
         return NextResponse.json(res, { status: res.ok ? 200 : 400 });
       }
       default:

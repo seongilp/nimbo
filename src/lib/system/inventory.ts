@@ -74,6 +74,54 @@ export async function setDiskLocation(stableId: string, loc: Partial<DiskLocatio
   return { ok: true };
 }
 
+/** Snapshot of the user-assigned location metadata (for export/backup). */
+export async function getDiskLocations(): Promise<LocationMap> {
+  return { ...(await loadLocations()) };
+}
+
+/**
+ * Import location metadata (label/bay/note, keyed by stableId) from a prior
+ * export. Accepts either a bare LocationMap or a full export object with a
+ * `locations` field. `merge` keeps existing entries; `replace` starts fresh.
+ * Only the editable location fields are applied — identity/health/ZFS is always
+ * live-detected, never imported.
+ */
+export async function importDiskLocations(
+  input: unknown,
+  mode: "merge" | "replace" = "merge",
+): Promise<{ ok: boolean; applied: number; skipped: number; error?: string }> {
+  const raw =
+    input && typeof input === "object" && "locations" in (input as Record<string, unknown>)
+      ? (input as { locations: unknown }).locations
+      : input;
+  if (!raw || typeof raw !== "object") return { ok: false, applied: 0, skipped: 0, error: "잘못된 형식입니다 (JSON 객체가 아닙니다)" };
+
+  const clean: LocationMap = {};
+  let skipped = 0;
+  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!id || typeof v !== "object" || v === null) {
+      skipped++;
+      continue;
+    }
+    const o = v as Record<string, unknown>;
+    const label = typeof o.label === "string" ? o.label.slice(0, 60) : "";
+    const bay = typeof o.bay === "string" ? o.bay.slice(0, 20) : "";
+    const note = typeof o.note === "string" ? o.note.slice(0, 200) : "";
+    if (!label && !bay && !note) {
+      skipped++;
+      continue;
+    }
+    clean[id] = { label, bay, note };
+  }
+
+  const applied = Object.keys(clean).length;
+  if (!applied) return { ok: false, applied: 0, skipped, error: "가져올 위치 정보가 없습니다" };
+
+  const base = mode === "replace" ? {} : { ...(await loadLocations()) };
+  await saveLocations({ ...base, ...clean });
+  return { ok: true, applied, skipped };
+}
+
 // ==========================================================================
 // physical disk <-> ZFS vdev member join
 // ==========================================================================

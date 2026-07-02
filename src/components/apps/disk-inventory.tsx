@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
   Cpu as Chip,
   Clock,
+  Download,
   HardDrive,
   MapPin,
   Search,
   Thermometer,
   Trash2,
+  Upload,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -19,6 +21,12 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -349,13 +357,86 @@ function HistoryTab() {
 }
 
 // --------------------------------------------------------------------------
+function downloadBlob(name: string, mime: string, content: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function csvCell(v: unknown): string {
+  const s = v == null ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 export function DiskInventory() {
   const { data, loading, refresh } = usePoll<DiskInventoryOverview>("/api/inventory", 8000);
   const [locItem, setLocItem] = useState<DiskInventoryItem | null>(null);
   const [replaceItem, setReplaceItem] = useState<DiskInventoryItem | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
 
   const items = data?.disks ?? [];
   const faults = items.filter((i) => i.fault !== "ok");
+
+  const stamp = () => new Date().toISOString().slice(0, 10);
+
+  async function exportJson() {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/inventory?view=export", { cache: "no-store" });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error ?? "내보내기 실패");
+      downloadBlob(`nimbo-disk-inventory-${stamp()}.json`, "application/json", JSON.stringify(j.data, null, 2));
+      toast.success("인벤토리를 JSON으로 내보냈습니다");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function exportCsv() {
+    const cols = ["device", "model", "serial", "wwn", "transport", "sizeBytes", "smart", "tempC", "pool", "vdev", "zfsState", "fault", "label", "bay", "note"];
+    const rows = items.map((it) => {
+      const d = it.disk;
+      return [
+        d.device, d.model, d.serial, d.wwn, d.transport, d.sizeBytes,
+        d.smartStatus, d.temperatureC,
+        it.zfs?.pool, it.zfs?.vdev, it.zfs?.state,
+        it.fault, it.location?.label, it.location?.bay, it.location?.note,
+      ].map(csvCell).join(",");
+    });
+    downloadBlob(`nimbo-disk-inventory-${stamp()}.csv`, "text/csv;charset=utf-8", [cols.join(","), ...rows].join("\n"));
+    toast.success("인벤토리를 CSV로 내보냈습니다");
+  }
+
+  async function onImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+    setBusy(true);
+    try {
+      const parsed = JSON.parse(await file.text());
+      const res = await fetch("/api/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "location.import", locations: parsed, mode: "merge" }),
+      });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error ?? "가져오기 실패");
+      toast.success(`위치 정보 ${j.applied}개를 가져왔습니다${j.skipped ? ` (건너뜀 ${j.skipped})` : ""}`);
+      refresh();
+    } catch (e) {
+      toast.error(`가져오기 실패: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const list = (rows: DiskInventoryItem[], empty: string) => (
     <ScrollArea className="min-h-0 flex-1">
@@ -383,7 +464,30 @@ export function DiskInventory() {
             </TabsTrigger>
             <TabsTrigger value="history"><Clock className="size-3.5" /> 이력</TabsTrigger>
           </TabsList>
-          {data?.isMock && <Badge variant="secondary" className="text-[10px]">demo</Badge>}
+          <div className="flex items-center gap-1.5">
+            {data?.isMock && <Badge variant="secondary" className="text-[10px]">demo</Badge>}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" disabled={busy}>
+                  <Download className="size-3.5" /> 내보내기
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={exportJson}>JSON (전체 + 위치 백업)</DropdownMenuItem>
+                <DropdownMenuItem onClick={exportCsv}>CSV (표 · 스프레드시트)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1 text-xs"
+              disabled={busy}
+              onClick={() => fileRef.current?.click()}
+            >
+              <Upload className="size-3.5" /> 가져오기
+            </Button>
+            <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={onImportFile} />
+          </div>
         </div>
 
         <TabsContent value="inventory" className="m-0 flex min-h-0 flex-1 flex-col">{list(items, "디스크가 없습니다.")}</TabsContent>

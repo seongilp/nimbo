@@ -26,7 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { usePoll } from "@/lib/hooks/use-poll";
 import { formatBytes, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { DirListing, FileEntry, ShareInfo } from "@/lib/types";
+import type { DirListing, FileContext, FileEntry, ShareInfo } from "@/lib/types";
 
 function fileIcon(entry: FileEntry) {
   if (entry.type === "directory") return Folder;
@@ -40,15 +40,28 @@ function fileIcon(entry: FileEntry) {
 }
 
 export function FileStation() {
-  const [path, setPath] = useState("/");
+  // Empty path → the server defaults to the logged-in user's home.
+  const [path, setPath] = useState("");
+  const { data: ctx } = usePoll<FileContext>("/api/files?view=context", 0);
   const { data: listing, loading, error, refresh } = usePoll<DirListing>(
     `/api/files?path=${encodeURIComponent(path)}`,
     0
   );
   const { data: shares } = usePoll<ShareInfo[]>("/api/shares", 0);
 
-  const segments = path.split("/").filter(Boolean);
+  // Display uses the server-resolved path (so the initial "" shows as the home path).
+  const curPath = listing?.path ?? path;
+  const home = ctx?.home ?? "";
   const smbShares = (shares ?? []).filter((s) => s.protocol === "smb");
+
+  // Clamp the breadcrumb to the root that contains curPath, so a user never
+  // sees (or clicks into) an ancestor above what they're allowed to browse.
+  const within = (p: string, root: string) =>
+    p === root || p.startsWith(root.endsWith("/") ? root : root + "/");
+  const roots = [...(ctx?.roots ?? []), ...smbShares.map((s) => ({ label: s.name, path: s.path }))];
+  const activeRoot = roots.find((r) => within(curPath, r.path)) ?? { label: curPath.split("/").pop() || "/", path: curPath };
+  const rootBase = activeRoot.path === "/" ? "" : activeRoot.path.replace(/\/$/, "");
+  const relSegs = curPath.slice(rootBase.length).split("/").filter(Boolean);
 
   return (
     <div className="flex h-full bg-background">
@@ -60,18 +73,14 @@ export function FileStation() {
           </p>
         </div>
         <ScrollArea className="flex-1 px-2">
-          <SidebarItem icon={Home} label="Root (/)" active={path === "/"} onClick={() => setPath("/")} />
-          {/* Quick links to common locations; harmless if they don't exist on this host. */}
-          {[
-            { label: "home", path: "/home" },
-            { label: "mnt", path: "/mnt" },
-            { label: "srv", path: "/srv" },
-          ].map((loc) => (
+          {/* Locations from the session context: the user's home first, plus any
+              admin roots. Non-admins only ever see their own home here. */}
+          {(ctx?.roots ?? []).map((loc) => (
             <SidebarItem
               key={loc.path}
-              icon={HardDrive}
+              icon={loc.path === home ? Home : HardDrive}
               label={loc.label}
-              active={path === loc.path}
+              active={curPath === loc.path}
               onClick={() => setPath(loc.path)}
             />
           ))}
@@ -86,7 +95,7 @@ export function FileStation() {
               key={s.name}
               icon={s.guestOk ? Users : s.readOnly ? Lock : FolderOpen}
               label={s.name}
-              active={path === s.path}
+              active={curPath === s.path}
               onClick={() => setPath(s.path)}
             />
           ))}
@@ -101,13 +110,20 @@ export function FileStation() {
             variant="ghost"
             size="sm"
             className="h-7 gap-1 px-2 text-xs"
-            onClick={() => setPath("/")}
+            onClick={() => setPath(home)}
+            title="홈"
           >
             <Home className="size-3.5" />
           </Button>
           <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
-            {segments.map((seg, i) => {
-              const segPath = "/" + segments.slice(0, i + 1).join("/");
+            <button
+              className="shrink-0 rounded px-1.5 py-0.5 text-sm font-medium hover:bg-accent"
+              onClick={() => setPath(activeRoot.path)}
+            >
+              {activeRoot.label}
+            </button>
+            {relSegs.map((seg, i) => {
+              const segPath = rootBase + "/" + relSegs.slice(0, i + 1).join("/");
               return (
                 <div key={segPath} className="flex shrink-0 items-center">
                   <ChevronRight className="size-3.5 text-muted-foreground" />

@@ -97,6 +97,14 @@ export interface DirListing {
   isMock: boolean;
 }
 
+/** File Station context for the logged-in user: default home + sidebar roots. */
+export interface FileContext {
+  user: string;
+  isAdmin: boolean;
+  home: string;
+  roots: { label: string; path: string }[];
+}
+
 export interface ShareInfo {
   name: string;
   path: string;

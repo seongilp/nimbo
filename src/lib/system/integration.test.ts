@@ -203,4 +203,10 @@ describe("command-injection defenses — inputs validated before any privileged 
     expect((await runHostAction({ kind: "host.setHostname", hostname: "$(reboot)" })).ok).toBe(false);
     expect((await runHostAction({ kind: "time.setTimezone", timezone: "Asia/Seoul; evil" })).ok).toBe(false);
   });
+
+  it("security: firewall rule.create rejects injection in port/source", async () => {
+    const { runSecurityAction } = await import("./security");
+    expect((await runSecurityAction({ kind: "rule.create", rule: { port: "80; rm -rf /", source: "any" } })).ok).toBe(false);
+    expect((await runSecurityAction({ kind: "rule.create", rule: { port: "80", source: "1.2.3.0/24 && reboot" } })).ok).toBe(false);
+  });
 });

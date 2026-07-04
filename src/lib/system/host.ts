@@ -1,7 +1,7 @@
 import os from "node:os";
 
 import type { HostConfig, NetInterfaceConfig } from "@/lib/types";
-import { hasCommand, run, USE_MOCK } from "./exec";
+import { hasCommand, runArgs, USE_MOCK } from "./exec";
 
 // --------------------------------------------------------------------------
 // Validation
@@ -109,7 +109,7 @@ async function readRealHostConfig(): Promise<HostConfig> {
   const hostname = os.hostname();
 
   let timezone = "";
-  const tzRes = await run("timedatectl show -p Timezone --value");
+  const tzRes = await runArgs("timedatectl", ["show", "-p", "Timezone", "--value"]);
   if (tzRes.code === 0) timezone = tzRes.stdout.trim();
   if (!timezone) {
     try {
@@ -120,7 +120,7 @@ async function readRealHostConfig(): Promise<HostConfig> {
   }
 
   let timezones: string[] = [];
-  const tzListRes = await run("timedatectl list-timezones");
+  const tzListRes = await runArgs("timedatectl", ["list-timezones"]);
   if (tzListRes.code === 0) {
     timezones = tzListRes.stdout
       .split("\n")
@@ -131,7 +131,7 @@ async function readRealHostConfig(): Promise<HostConfig> {
   if (timezone && !timezones.includes(timezone)) timezones = [timezone, ...timezones];
 
   let ntpEnabled = false;
-  const ntpRes = await run("timedatectl show -p NTP --value");
+  const ntpRes = await runArgs("timedatectl", ["show", "-p", "NTP", "--value"]);
   if (ntpRes.code === 0) ntpEnabled = ntpRes.stdout.trim() === "yes";
 
   const interfaces = await readInterfaces();
@@ -169,14 +169,14 @@ function cidrToNetmask(prefix: number): string {
 async function readInterfaces(): Promise<NetInterfaceConfig[]> {
   const out: NetInterfaceConfig[] = [];
   try {
-    const addrRes = await run("ip -j addr");
+    const addrRes = await runArgs("ip", ["-j", "addr"]);
     if (addrRes.code !== 0 || !addrRes.stdout.trim()) return [];
 
     const links = JSON.parse(addrRes.stdout) as IpLink[];
 
     // Best-effort gateway map from default routes.
     const gateways: Record<string, string> = {};
-    const routeRes = await run("ip route");
+    const routeRes = await runArgs("ip", ["route"]);
     if (routeRes.code === 0) {
       for (const line of routeRes.stdout.split("\n")) {
         const m = line.match(/^default via (\S+) dev (\S+)/);
@@ -249,7 +249,7 @@ export async function runHostAction(a: HostAction): Promise<{ ok: boolean; error
       const h = a.hostname?.trim() ?? "";
       if (!HOSTNAME_RE.test(h)) return fail("유효하지 않은 호스트 이름");
       if (!USE_MOCK) {
-        const { code, stderr } = await run(`hostnamectl set-hostname ${h}`);
+        const { code, stderr } = await runArgs("hostnamectl", ["set-hostname", h]);
         if (code !== 0) return fail(stderr.trim() || "호스트 이름 변경은 권한 필요");
       }
       state.hostname = h;
@@ -259,7 +259,7 @@ export async function runHostAction(a: HostAction): Promise<{ ok: boolean; error
       const tz = a.timezone?.trim() ?? "";
       if (!TZ_RE.test(tz)) return fail("유효하지 않은 시간대");
       if (!USE_MOCK) {
-        const { code, stderr } = await run(`timedatectl set-timezone ${tz}`);
+        const { code, stderr } = await runArgs("timedatectl", ["set-timezone", tz]);
         if (code !== 0) return fail(stderr.trim() || "시간대 변경은 권한 필요");
       }
       state.timezone = tz;
@@ -272,7 +272,7 @@ export async function runHostAction(a: HostAction): Promise<{ ok: boolean; error
         return fail("유효하지 않은 NTP 서버");
       }
       if (!USE_MOCK) {
-        const { code, stderr } = await run(`timedatectl set-ntp ${enabled ? "true" : "false"}`);
+        const { code, stderr } = await runArgs("timedatectl", ["set-ntp", enabled ? "true" : "false"]);
         if (code !== 0) return fail(stderr.trim() || "NTP 변경은 권한 필요");
       }
       state.ntpEnabled = enabled;
@@ -286,7 +286,7 @@ export async function runHostAction(a: HostAction): Promise<{ ok: boolean; error
       if (!USE_MOCK) {
         const pad = (n: number) => String(n).padStart(2, "0");
         const formatted = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-        const { code, stderr } = await run(`timedatectl set-time "${formatted}"`);
+        const { code, stderr } = await runArgs("timedatectl", ["set-time", formatted]);
         if (code !== 0) return fail(stderr.trim() || "시간 변경은 권한 필요");
       }
       state.datetimeIso = d.toISOString();
@@ -314,18 +314,17 @@ export async function runHostAction(a: HostAction): Promise<{ ok: boolean; error
         if (mode === "static") {
           const cidr = netmask ? netmaskToCidr(netmask) : null;
           const addr = cidr != null ? `${ipv4}/${cidr}` : ipv4;
-          const dnsArg = dns.join(" ");
-          const cmd = `nmcli con mod ${i.name} ipv4.method manual ipv4.addresses ${addr}` +
-            (gateway ? ` ipv4.gateway ${gateway}` : "") +
-            (dnsArg ? ` ipv4.dns "${dnsArg}"` : "");
-          const mres = await run(cmd, { timeoutMs: 15000 });
+          const modArgs = ["con", "mod", i.name, "ipv4.method", "manual", "ipv4.addresses", addr];
+          if (gateway) modArgs.push("ipv4.gateway", gateway);
+          if (dns.length) modArgs.push("ipv4.dns", dns.join(" ")); // one arg; nmcli splits on space/comma
+          const mres = await runArgs("nmcli", modArgs, { timeoutMs: 15000 });
           if (mres.code !== 0) return fail(mres.stderr.trim() || "네트워크 변경은 권한 필요");
-          const ures = await run(`nmcli con up ${i.name}`, { timeoutMs: 15000 });
+          const ures = await runArgs("nmcli", ["con", "up", i.name], { timeoutMs: 15000 });
           if (ures.code !== 0) return fail(ures.stderr.trim() || "네트워크 변경은 권한 필요");
         } else {
-          const mres = await run(`nmcli con mod ${i.name} ipv4.method auto`, { timeoutMs: 15000 });
+          const mres = await runArgs("nmcli", ["con", "mod", i.name, "ipv4.method", "auto"], { timeoutMs: 15000 });
           if (mres.code !== 0) return fail(mres.stderr.trim() || "네트워크 변경은 권한 필요");
-          await run(`nmcli con up ${i.name}`, { timeoutMs: 15000 });
+          await runArgs("nmcli", ["con", "up", i.name], { timeoutMs: 15000 });
         }
       }
 

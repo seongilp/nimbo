@@ -18,15 +18,16 @@ PORT=3000
 CADDY_HOST=""
 USE_CADDY=1        # HTTPS via Caddy on 443 by default; --no-caddy opts out
 CADDY_AUTO=0       # 1 when CADDY_HOST was auto-detected (no explicit --caddy)
+CADDY_EXPLICIT=0   # 1 when --caddy/--no-caddy was passed (vs. preserving prior mode)
 HTTPS_PORT=443
 NODE_MAJOR=20
 TERMINAL_PORT=3001 # fixed sidecar port — the app port must never collide with it
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --port) PORT="$2"; shift 2 ;;
-    --caddy) CADDY_HOST="$2"; USE_CADDY=1; shift 2 ;;
-    --no-caddy) USE_CADDY=0; shift ;;
+    --port) [[ -n "${2:-}" ]] || { echo "--port 에 포트 번호가 필요합니다" >&2; exit 1; }; PORT="$2"; shift 2 ;;
+    --caddy) [[ -n "${2:-}" ]] || { echo "--caddy 에 도메인 또는 IP가 필요합니다" >&2; exit 1; }; CADDY_HOST="$2"; USE_CADDY=1; CADDY_EXPLICIT=1; shift 2 ;;
+    --no-caddy) USE_CADDY=0; CADDY_EXPLICIT=1; shift ;;
     *) echo "알 수 없는 옵션: $1" >&2; exit 1 ;;
   esac
 done
@@ -35,7 +36,11 @@ done
 detect_ip() {
   local ip=""
   ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
-  [[ -z "$ip" ]] && ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  if [[ -z "$ip" ]]; then
+    # Fallback: first hostname IP that isn't loopback, link-local, or the
+    # docker default bridge (172.17.x) — those would make the site unreachable.
+    ip=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -vE '^(127\.|169\.254\.|172\.17\.)' | head -1)
+  fi
   echo "$ip"
 }
 
@@ -103,6 +108,19 @@ if ! node_ok; then
 fi
 node_ok || { echo "Node.js 설치 실패" >&2; exit 1; }
 echo "==> Node $(node --version)"
+
+# ── preserve the prior HTTPS mode on a bare re-run (no --caddy/--no-caddy) ────
+# so re-running the one-liner on a DOMAIN install doesn't silently revert it to
+# an auto-IP self-signed cert. `nimbo update` passes the mode explicitly; this
+# also covers a raw `curl | bash` re-run.
+if [[ "$CADDY_EXPLICIT" == 0 && -f "$ENV_DIR/nimbo.env" ]]; then
+  _prev=$(grep -oE '^NIMBO_CADDY=.*' "$ENV_DIR/nimbo.env" 2>/dev/null | cut -d= -f2 || true)
+  case "$_prev" in
+    none)    USE_CADDY=0; echo "==> 기존 설정 유지: --no-caddy" ;;
+    auto|"") : ;;                                   # keep default (auto-detect IP)
+    *)       CADDY_HOST="$_prev"; USE_CADDY=1; echo "==> 기존 설정 유지: --caddy $_prev" ;;
+  esac
+fi
 
 # ── Caddy target: default to the server's own IP (self-signed) unless given ──
 if [[ "$USE_CADDY" == 1 && -z "$CADDY_HOST" ]]; then
@@ -273,6 +291,12 @@ if [[ "$USE_CADDY" == 1 ]]; then
       echo "     기존 프록시를 쓰려면 Caddy 없이 설치하고, 그 프록시에서 다음을 라우팅하세요:" >&2
       echo "       /api/terminal/ws → 127.0.0.1:3001   ·   그 외 → 127.0.0.1:$PORT" >&2
     fi
+  fi
+  # A real domain gets a Let's Encrypt cert, which needs the 80/443 ACME
+  # challenge — impossible if we were bumped off 443. Warn (self-signed IP is fine).
+  if [[ ! "$CADDY_HOST" =~ ^[0-9.]+$ && "$HTTPS_PORT" != "443" ]]; then
+    echo "   ⚠ 도메인 인증서(Let's Encrypt)는 443 챌린지가 필요한데 HTTPS 포트가 $HTTPS_PORT 입니다 —" >&2
+    echo "     자동 발급이 실패할 수 있습니다. 443을 비우고 재설치하거나 DNS 챌린지를 구성하세요." >&2
   fi
   local_site="$CADDY_HOST"; [[ "$HTTPS_PORT" != "443" ]] && local_site="$CADDY_HOST:$HTTPS_PORT"
   [[ "$CADDY_HOST" =~ ^[0-9.]+$ ]] && TLS_LINE="  tls internal" || TLS_LINE=""

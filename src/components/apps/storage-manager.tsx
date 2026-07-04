@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePoll } from "@/lib/hooks/use-poll";
 import { formatBytes } from "@/lib/format";
-import type { DiskInfo, PartitionInfo } from "@/lib/types";
+import type { DiskInfo, PartitionInfo, ZfsOverview } from "@/lib/types";
 
 // Guard against NaN / Infinity reaching the formatter.
 function fmt(bytes: number): string {
@@ -39,6 +39,23 @@ function summarizeMounted(disks: DiskInfo[] | null | undefined) {
   for (const v of byMount.values()) {
     total += v.total;
     used += v.used;
+  }
+  return { total, used };
+}
+
+// Total usable storage = OS filesystems (from lsblk, mounted) + ZFS pools (from
+// zpool). ZFS pools live on separate disks from the OS, so there's no double
+// count; zpool SIZE/ALLOC already account for redundancy (mirror/raidz), so they
+// are the right "usable" figures. Matches the dashboard's storage summary — the
+// old Storage Manager summary counted ONLY mounted OS filesystems, so it hid the
+// pools entirely (e.g. showed 772 GB when 12+ TB of pools existed).
+function summarizeStorage(disks: DiskInfo[] | null | undefined, zfs: ZfsOverview | null | undefined) {
+  const os = summarizeMounted(disks);
+  let total = os.total;
+  let used = os.used;
+  for (const pool of zfs?.pools ?? []) {
+    if (Number.isFinite(pool.sizeBytes)) total += pool.sizeBytes;
+    if (Number.isFinite(pool.allocBytes)) used += pool.allocBytes;
   }
   return { total, used };
 }
@@ -166,10 +183,14 @@ function DiskCard({ disk }: { disk: DiskInfo }) {
 
 export function StorageManager() {
   const { data: disks, loading } = usePoll<DiskInfo[]>("/api/storage", 5000);
+  // ZFS pools (admin-gated) so the summary reflects real usable capacity, not
+  // just the OS disk. Non-admins get null here and fall back to the OS total.
+  const { data: zfs } = usePoll<ZfsOverview>("/api/zfs", 5000);
 
-  // Summary counts only real mounted filesystems (e.g. /, /home, /boot) — not
-  // raw disk sizes and not ZFS member partitions — so it never shows petabytes.
-  const { total: totalBytes, used: usedBytes } = summarizeMounted(disks);
+  // Total = mounted OS filesystems (/, /home, …) PLUS ZFS pool capacity. Raw
+  // disk sizes and ZFS member partitions are excluded, so it never shows the
+  // doubled/raw figure.
+  const { total: totalBytes, used: usedBytes } = summarizeStorage(disks, zfs);
 
   return (
     <div className="flex h-full flex-col bg-background">

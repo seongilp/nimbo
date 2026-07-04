@@ -43,6 +43,20 @@ function summarizeMounted(disks: DiskInfo[] | null | undefined) {
   return { total, used };
 }
 
+// Pool/array member partitions (ZFS/MD-RAID/LVM) expose NO filesystem usage to
+// lsblk, so `fsused` is empty and the code falls back to "0% used / full free".
+// That reads as "empty disk" when the space is actually claimed by the pool —
+// misleading. For these, show the space as claimed by the pool instead; the
+// real data usage lives in the ZFS app (per pool), not per raw member.
+const POOL_MEMBER_LABEL: Record<string, string> = {
+  zfs_member: "In use by ZFS pool",
+  linux_raid_member: "In use by RAID array",
+  LVM2_member: "LVM physical volume",
+};
+function poolMemberLabel(fs: string | null | undefined): string | null {
+  return fs ? POOL_MEMBER_LABEL[fs] ?? null : null;
+}
+
 const SMART_BADGE = {
   passed: { label: "Healthy", className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400", Icon: CheckCircle2 },
   warning: { label: "Warning", className: "bg-amber-500/15 text-amber-600 dark:text-amber-400", Icon: AlertTriangle },
@@ -99,32 +113,43 @@ function DiskCard({ disk }: { disk: DiskInfo }) {
         {disk.partitions.length === 0 && (
           <p className="px-4 py-3 text-sm text-muted-foreground">No mounted partitions.</p>
         )}
-        {disk.partitions.map((part) => (
-          <div key={part.device} className="px-4 py-3">
-            <div className="mb-1.5 flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs">{part.device}</span>
-                <Badge variant="secondary" className="text-[10px] font-normal">{part.filesystem}</Badge>
-                {part.mountpoint && (
-                  <span className="text-xs text-muted-foreground">→ {part.mountpoint}</span>
+        {disk.partitions.map((part) => {
+          const memberLabel = poolMemberLabel(part.filesystem);
+          return (
+            <div key={part.device} className="px-4 py-3">
+              <div className="mb-1.5 flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs">{part.device}</span>
+                  <Badge variant="secondary" className="text-[10px] font-normal">{part.filesystem}</Badge>
+                  {part.mountpoint && (
+                    <span className="text-xs text-muted-foreground">→ {part.mountpoint}</span>
+                  )}
+                </div>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {memberLabel
+                    ? formatBytes(part.totalBytes)
+                    : `${formatBytes(part.usedBytes)} / ${formatBytes(part.totalBytes)}`}
+                </span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className={memberLabel ? "h-full rounded-full bg-muted-foreground/25" : "h-full rounded-full transition-all"}
+                  style={memberLabel ? { width: "100%" } : { width: `${part.usePercent}%`, backgroundColor: usageColor(part.usePercent) }}
+                />
+              </div>
+              <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+                {memberLabel ? (
+                  <span>{memberLabel}</span>
+                ) : (
+                  <>
+                    <span>{part.usePercent}% used</span>
+                    <span>{formatBytes(part.availBytes)} free</span>
+                  </>
                 )}
               </div>
-              <span className="text-xs tabular-nums text-muted-foreground">
-                {formatBytes(part.usedBytes)} / {formatBytes(part.totalBytes)}
-              </span>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${part.usePercent}%`, backgroundColor: usageColor(part.usePercent) }}
-              />
-            </div>
-            <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
-              <span>{part.usePercent}% used</span>
-              <span>{formatBytes(part.availBytes)} free</span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Card>
   );

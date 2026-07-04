@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import type { PackageApp } from "@/lib/types";
-import { hasCommand, run, USE_MOCK } from "./exec";
+import { hasCommand, runArgs, USE_MOCK } from "./exec";
 
 // --------------------------------------------------------------------------
 // Host configuration. Where persistent app data and media live on the NAS,
@@ -626,7 +626,7 @@ let composeCmdCache: string | null = null;
 /** Detect the available compose engine, preferring `docker compose` (v2). */
 async function composeCmd(): Promise<string> {
   if (composeCmdCache) return composeCmdCache;
-  const v = await run("docker compose version", { timeoutMs: 10_000 });
+  const v = await runArgs("docker", ["compose", "version"], { timeoutMs: 10_000 });
   composeCmdCache = v.code === 0 ? "docker compose" : "docker-compose";
   return composeCmdCache;
 }
@@ -709,7 +709,12 @@ async function resolveRealFlags(): Promise<Record<string, AppFlags>> {
   }
 
   // Legacy fallback: surface containers created via plain `docker run`.
-  const { stdout, code } = await run("docker ps -a --format '{{.Names}} {{.State}}'");
+  const { stdout, code } = await runArgs("docker", [
+    "ps",
+    "-a",
+    "--format",
+    "{{.Names}} {{.State}}",
+  ]);
   if (code === 0) {
     for (const line of stdout.split("\n").filter(Boolean)) {
       const [name, state] = line.trim().split(/\s+/);
@@ -729,10 +734,13 @@ async function resolveRealFlags(): Promise<Record<string, AppFlags>> {
 
 /** True if the compose project has at least one running container. */
 async function composeRunning(file: string, cmd: string): Promise<boolean> {
-  const ps = await run(`${cmd} -f "${file}" ps -q`, { timeoutMs: 15_000 });
+  const parts = cmd.split(" ");
+  const ps = await runArgs(parts[0], [...parts.slice(1), "-f", file, "ps", "-q"], {
+    timeoutMs: 15_000,
+  });
   const ids = ps.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
   if (ids.length === 0) return false;
-  const insp = await run(`docker inspect -f '{{.State.Running}}' ${ids.join(" ")}`, {
+  const insp = await runArgs("docker", ["inspect", "-f", "{{.State.Running}}", ...ids], {
     timeoutMs: 15_000,
   });
   return insp.stdout.includes("true");
@@ -797,7 +805,7 @@ async function installApp(app: CatalogEntry): Promise<{ ok: boolean; error?: str
   const dir = appDir(app.id);
   const file = composeFile(app.id);
 
-  const mk = await run(`mkdir -p "${dir}"`, { timeoutMs: 15_000 });
+  const mk = await runArgs("mkdir", ["-p", dir], { timeoutMs: 15_000 });
   if (mk.code !== 0) return fail(mk.stderr.trim() || "데이터 폴더 생성에 실패했습니다.");
 
   const dbPassword = await getDbPassword(app.id);
@@ -817,7 +825,10 @@ async function installApp(app: CatalogEntry): Promise<{ ok: boolean; error?: str
   }
 
   const cmd = await composeCmd();
-  const { code, stderr } = await run(`${cmd} -f "${file}" up -d`, { timeoutMs: 300_000 });
+  const parts = cmd.split(" ");
+  const { code, stderr } = await runArgs(parts[0], [...parts.slice(1), "-f", file, "up", "-d"], {
+    timeoutMs: 300_000,
+  });
   return code === 0 ? ok() : fail(stderr.trim() || "설치에 실패했습니다.");
 }
 
@@ -830,8 +841,11 @@ async function uninstallApp(app: CatalogEntry): Promise<{ ok: boolean; error?: s
   const file = composeFile(app.id);
   if (await fileExists(file)) {
     const cmd = await composeCmd();
+    const parts = cmd.split(" ");
     // Tear down containers/network but keep named/bind volumes (no `-v`).
-    const { code, stderr } = await run(`${cmd} -f "${file}" down`, { timeoutMs: 120_000 });
+    const { code, stderr } = await runArgs(parts[0], [...parts.slice(1), "-f", file, "down"], {
+      timeoutMs: 120_000,
+    });
     if (code !== 0) return fail(stderr.trim() || "제거에 실패했습니다.");
     // Drop the compose file so the app reads as uninstalled; data dir stays.
     try {
@@ -843,7 +857,7 @@ async function uninstallApp(app: CatalogEntry): Promise<{ ok: boolean; error?: s
   }
 
   // Legacy fallback for plain `docker run` installs.
-  const { code, stderr } = await run(`docker rm -f ${app.id}`, { timeoutMs: 30_000 });
+  const { code, stderr } = await runArgs("docker", ["rm", "-f", app.id], { timeoutMs: 30_000 });
   return code === 0 ? ok() : fail(stderr.trim() || "제거에 실패했습니다.");
 }
 
@@ -856,12 +870,15 @@ async function startApp(app: CatalogEntry): Promise<{ ok: boolean; error?: strin
   const file = composeFile(app.id);
   if (await fileExists(file)) {
     const cmd = await composeCmd();
-    const { code, stderr } = await run(`${cmd} -f "${file}" start`, { timeoutMs: 120_000 });
+    const parts = cmd.split(" ");
+    const { code, stderr } = await runArgs(parts[0], [...parts.slice(1), "-f", file, "start"], {
+      timeoutMs: 120_000,
+    });
     if (code === 0) return ok();
     return fail(stderr.trim() || "시작에 실패했습니다.");
   }
 
-  const { code, stderr } = await run(`docker start ${app.id}`, { timeoutMs: 30_000 });
+  const { code, stderr } = await runArgs("docker", ["start", app.id], { timeoutMs: 30_000 });
   return code === 0 ? ok() : fail(stderr.trim() || "시작에 실패했습니다.");
 }
 
@@ -874,12 +891,15 @@ async function stopApp(app: CatalogEntry): Promise<{ ok: boolean; error?: string
   const file = composeFile(app.id);
   if (await fileExists(file)) {
     const cmd = await composeCmd();
-    const { code, stderr } = await run(`${cmd} -f "${file}" stop`, { timeoutMs: 120_000 });
+    const parts = cmd.split(" ");
+    const { code, stderr } = await runArgs(parts[0], [...parts.slice(1), "-f", file, "stop"], {
+      timeoutMs: 120_000,
+    });
     if (code === 0) return ok();
     return fail(stderr.trim() || "중지에 실패했습니다.");
   }
 
-  const { code, stderr } = await run(`docker stop ${app.id}`, { timeoutMs: 30_000 });
+  const { code, stderr } = await runArgs("docker", ["stop", app.id], { timeoutMs: 30_000 });
   return code === 0 ? ok() : fail(stderr.trim() || "중지에 실패했습니다.");
 }
 
@@ -907,15 +927,17 @@ async function logsApp(app: CatalogEntry): Promise<PackageActionResult> {
   const file = composeFile(app.id);
   if (await fileExists(file)) {
     const cmd = await composeCmd();
-    const { stdout, stderr, code } = await run(
-      `${cmd} -f "${file}" logs --tail 300 --no-color`,
+    const parts = cmd.split(" ");
+    const { stdout, stderr, code } = await runArgs(
+      parts[0],
+      [...parts.slice(1), "-f", file, "logs", "--tail", "300", "--no-color"],
       { timeoutMs: 30_000 }
     );
     if (code === 0) return ok({ log: stdout || stderr || "(로그가 없습니다.)" });
     // fall through to legacy docker logs on failure
   }
 
-  const { stdout, stderr, code } = await run(`docker logs --tail 300 ${app.id}`, {
+  const { stdout, stderr, code } = await runArgs("docker", ["logs", "--tail", "300", app.id], {
     timeoutMs: 30_000,
   });
   if (code === 0) return ok({ log: stdout || stderr || "(로그가 없습니다.)" });
@@ -950,7 +972,7 @@ async function composeSave(app: CatalogEntry, yaml: string): Promise<PackageActi
   const dir = appDir(app.id);
   const file = composeFile(app.id);
 
-  const mk = await run(`mkdir -p "${dir}"`, { timeoutMs: 15_000 });
+  const mk = await runArgs("mkdir", ["-p", dir], { timeoutMs: 15_000 });
   if (mk.code !== 0) return fail(mk.stderr.trim() || "데이터 폴더 생성에 실패했습니다.");
 
   try {
@@ -960,6 +982,9 @@ async function composeSave(app: CatalogEntry, yaml: string): Promise<PackageActi
   }
 
   const cmd = await composeCmd();
-  const { code, stderr } = await run(`${cmd} -f "${file}" up -d`, { timeoutMs: 300_000 });
+  const parts = cmd.split(" ");
+  const { code, stderr } = await runArgs(parts[0], [...parts.slice(1), "-f", file, "up", "-d"], {
+    timeoutMs: 300_000,
+  });
   return code === 0 ? ok() : fail(stderr.trim() || "적용에 실패했습니다.");
 }

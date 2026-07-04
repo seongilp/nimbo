@@ -16,7 +16,13 @@ const fakeOs = vi.hoisted(() => ({
 vi.mock("./exec", () => ({
   USE_MOCK: false,
   shq: (s: string) => `'${String(s).replace(/'/g, `'\\''`)}'`,
-  runArgs: vi.fn(async (cmd: string, args: string[]) => {
+  runArgs: vi.fn(async (cmd: string, args: string[], opts?: { input?: string }) => {
+    if (cmd === "python3") {
+      // verifyOsPassword's crypt check now runs argv-style: password on stdin,
+      // hash as argv. OK iff the good password arrived on stdin.
+      return { stdout: (opts?.input ?? "").includes(fakeOs.goodPassword) ? "OK" : "NO", stderr: "", code: 0 };
+    }
+    if (cmd === "last") return { stdout: "", stderr: "", code: 0 }; // login history (audit)
     if (cmd === "getent" && args[0] === "shadow") {
       const u = args[1];
       return fakeOs.users[u]

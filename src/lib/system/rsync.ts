@@ -8,7 +8,7 @@ import type {
   RsyncServer,
   SyncSchedule,
 } from "@/lib/types";
-import { hasCommand, run, USE_MOCK } from "./exec";
+import { hasCommand, runArgs, USE_MOCK } from "./exec";
 import { emitEvent } from "./notify";
 
 function notifyJob(job: RsyncJob) {
@@ -181,7 +181,7 @@ export async function getBackupOverview(): Promise<BackupOverview> {
   if (!USE_MOCK) {
     rsyncAvailable = await hasCommand("rsync");
     // Reflect the real daemon status when possible.
-    const { code } = await run("systemctl is-active --quiet rsync");
+    const { code } = await runArgs("systemctl", ["is-active", "--quiet", "rsync"]);
     enabled = code === 0;
     state.enabled = enabled;
     // Reflect the real server config: modules come from /etc/rsyncd.conf only.
@@ -272,8 +272,8 @@ export async function runBackupAction(a: BackupAction): Promise<{ ok: boolean; e
     case "server.toggle": {
       state.enabled = a.enabled ?? !state.enabled;
       if (!USE_MOCK) {
-        const cmd = state.enabled ? "systemctl enable --now rsync" : "systemctl disable --now rsync";
-        const { code, stderr } = await run(cmd, { timeoutMs: 15000 });
+        const args = state.enabled ? ["enable", "--now", "rsync"] : ["disable", "--now", "rsync"];
+        const { code, stderr } = await runArgs("systemctl", args, { timeoutMs: 15000 });
         if (code !== 0) return fail(stderr.trim() || "needs root/sudoers");
       }
       return ok();
@@ -297,7 +297,7 @@ async function persistConf(): Promise<{ ok: boolean; error?: string }> {
   if (USE_MOCK) return ok();
   try {
     await writeFile(RSYNC_CONF, generateConf(), "utf8");
-    await run("systemctl reload-or-restart rsync");
+    await runArgs("systemctl", ["reload-or-restart", "rsync"]);
     return ok();
   } catch (err) {
     return fail((err as Error).message + " — needs root to write " + RSYNC_CONF);
@@ -361,8 +361,9 @@ async function runJob(job: RsyncJob): Promise<{ ok: boolean; error?: string }> {
     job.lastStatus = "failed";
     return fail("invalid endpoint");
   }
-  const flags = [job.archive ? "-a" : "-r", job.compress ? "-z" : "", job.deleteExtra ? "--delete" : "", "--stats"].filter(Boolean).join(" ");
-  const { stdout, code, stderr } = await run(`rsync ${flags} ${src} ${dst}`, { timeoutMs: 10 * 60_000 });
+  const flagArgs = [job.archive ? "-a" : "-r", job.compress ? "-z" : "", job.deleteExtra ? "--delete" : "", "--stats"].filter(Boolean);
+  const flags = flagArgs.join(" ");
+  const { stdout, code, stderr } = await runArgs("rsync", [...flagArgs, src, dst], { timeoutMs: 10 * 60_000 });
   job.lastRun = Date.now();
   job.lastLog = (`$ rsync ${flags} ${src} ${dst}\n\n` + stdout + (stderr ? "\n" + stderr : "")).slice(-8000);
   if (code === 0) {

@@ -171,7 +171,7 @@ async function runSchedule(s: SnapshotSchedule): Promise<void> {
       mock.snapshots = mock.snapshots.filter((x) => x.name !== old.name);
     }
   } else {
-    const { stdout } = await run(`zfs list -t snapshot -Hp -o name,creation -s creation`);
+    const { stdout } = await runArgs("zfs", ["list", "-t", "snapshot", "-Hp", "-o", "name,creation", "-s", "creation"]);
     const names = stdout
       .split("\n")
       .map((l) => l.split("\t")[0])
@@ -422,9 +422,9 @@ export async function getZfsOverview(): Promise<ZfsOverview> {
 
 async function getAvailableDevices(): Promise<ZfsDevice[]> {
   // Disks with no partitions/filesystem and not already claimed by a pool.
-  const { stdout, code } = await run(
-    "lsblk -J -b -o NAME,TYPE,SIZE,MODEL,FSTYPE,MOUNTPOINT"
-  );
+  const { stdout, code } = await runArgs("lsblk", [
+    "-J", "-b", "-o", "NAME,TYPE,SIZE,MODEL,FSTYPE,MOUNTPOINT",
+  ]);
   if (code !== 0) return [];
   let parsed: { blockdevices: { name: string; type: string; size?: number; model?: string | null; fstype?: string | null; children?: unknown[] }[] };
   try {
@@ -448,9 +448,9 @@ async function getAvailableDevices(): Promise<ZfsDevice[]> {
 }
 
 async function readPools(): Promise<ZpoolInfo[]> {
-  const { stdout, code } = await run(
-    "zpool list -Hp -o name,size,alloc,free,cap,frag,dedup,health,autotrim"
-  );
+  const { stdout, code } = await runArgs("zpool", [
+    "list", "-Hp", "-o", "name,size,alloc,free,cap,frag,dedup,health,autotrim",
+  ]);
   if (code !== 0) return [];
   const pools: ZpoolInfo[] = [];
   for (const line of stdout.split("\n").filter(Boolean)) {
@@ -483,7 +483,7 @@ async function readPoolStatus(
     cksumErrors: 0,
   };
   if (!NAME_RE.test(name)) return empty;
-  const { stdout, code } = await run(`zpool status ${name}`);
+  const { stdout, code } = await runArgs("zpool", ["status", name]);
   if (code !== 0) return empty;
 
   const vdevs: Vdev[] = [];
@@ -568,7 +568,7 @@ async function readPoolStatus(
 async function readDatasets(): Promise<ZfsDataset[]> {
   const props =
     "name,type,used,avail,refer,mountpoint,compression,compressratio,dedup,recordsize,quota,reservation,atime,readonly,encryption";
-  const { stdout, code } = await run(`zfs list -Hp -o ${props}`);
+  const { stdout, code } = await runArgs("zfs", ["list", "-Hp", "-o", props]);
   if (code !== 0) return [];
   const snapCounts = await snapshotCounts();
   const out: ZfsDataset[] = [];
@@ -598,7 +598,7 @@ async function readDatasets(): Promise<ZfsDataset[]> {
 }
 
 async function snapshotCounts(): Promise<Record<string, number>> {
-  const { stdout, code } = await run("zfs list -t snapshot -Hp -o name");
+  const { stdout, code } = await runArgs("zfs", ["list", "-t", "snapshot", "-Hp", "-o", "name"]);
   const counts: Record<string, number> = {};
   if (code !== 0) return counts;
   for (const line of stdout.split("\n").filter(Boolean)) {
@@ -609,7 +609,7 @@ async function snapshotCounts(): Promise<Record<string, number>> {
 }
 
 async function readSnapshots(): Promise<ZfsSnapshot[]> {
-  const { stdout, code } = await run("zfs list -t snapshot -Hp -o name,used,refer,creation");
+  const { stdout, code } = await runArgs("zfs", ["list", "-t", "snapshot", "-Hp", "-o", "name,used,refer,creation"]);
   if (code !== 0) return [];
   const out: ZfsSnapshot[] = [];
   for (const line of stdout.split("\n").filter(Boolean)) {

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import type { SysGroup, SysUser, UsersOverview } from "@/lib/types";
-import { run, runArgs, shq as sq, USE_MOCK } from "./exec";
+import { runArgs, USE_MOCK } from "./exec";
 
 // --------------------------------------------------------------------------
 // Validation & shell escaping
@@ -141,7 +141,7 @@ async function readReal(): Promise<UsersOverview> {
   let passwdOut = "";
   let groupOut = "";
 
-  const passwdRes = await run("getent passwd");
+  const passwdRes = await runArgs("getent", ["passwd"]);
   passwdOut = passwdRes.code === 0 && passwdRes.stdout.trim() ? passwdRes.stdout : "";
   if (!passwdOut) {
     try {
@@ -151,7 +151,7 @@ async function readReal(): Promise<UsersOverview> {
     }
   }
 
-  const groupRes = await run("getent group");
+  const groupRes = await runArgs("getent", ["group"]);
   groupOut = groupRes.code === 0 && groupRes.stdout.trim() ? groupRes.stdout : "";
   if (!groupOut) {
     try {
@@ -255,7 +255,7 @@ async function createUser(a: Extract<UserAction, { kind: "user.create" }>): Prom
     return ok();
   }
 
-  const create = await run(`useradd -m -c ${sq(fullName)} -s ${sq(LOGIN_SHELL)} ${sq(a.name)}`, { timeoutMs: 15000 });
+  const create = await runArgs("useradd", ["-m", "-c", fullName, "-s", LOGIN_SHELL, a.name], { timeoutMs: 15000 });
   if (create.code !== 0) return privFail(create.stderr);
 
   if (password) {
@@ -266,7 +266,7 @@ async function createUser(a: Extract<UserAction, { kind: "user.create" }>): Prom
     if (pw.code !== 0) return privFail(pw.stderr);
   }
   if (groups.length > 0) {
-    const ug = await run(`usermod -aG ${sq(groups.join(","))} ${sq(a.name)}`, { timeoutMs: 15000 });
+    const ug = await runArgs("usermod", ["-aG", groups.join(","), a.name], { timeoutMs: 15000 });
     if (ug.code !== 0) return privFail(ug.stderr);
   }
   return ok();
@@ -282,7 +282,7 @@ async function deleteUser(name: string): Promise<ActionResult> {
     state.groups = state.groups.map((g) => ({ ...g, members: g.members.filter((m) => m !== name) }));
     return ok();
   }
-  const res = await run(`userdel -r ${sq(name)}`, { timeoutMs: 15000 });
+  const res = await runArgs("userdel", ["-r", name], { timeoutMs: 15000 });
   if (res.code !== 0) return privFail(res.stderr);
   return ok();
 }
@@ -315,7 +315,7 @@ async function setGroups(name: string, groups: string[]): Promise<ActionResult> 
     }));
     return ok();
   }
-  const res = await run(`usermod -G ${sq(valid.join(","))} ${sq(name)}`, { timeoutMs: 15000 });
+  const res = await runArgs("usermod", ["-G", valid.join(","), name], { timeoutMs: 15000 });
   if (res.code !== 0) return privFail(res.stderr);
   return ok();
 }
@@ -331,7 +331,7 @@ async function toggleDisabled(name: string, disabled: boolean): Promise<ActionRe
     return ok();
   }
   const shell = disabled ? NOLOGIN_SHELL : LOGIN_SHELL;
-  const res = await run(`usermod -s ${sq(shell)} ${sq(name)}`, { timeoutMs: 15000 });
+  const res = await runArgs("usermod", ["-s", shell, name], { timeoutMs: 15000 });
   if (res.code !== 0) return privFail(res.stderr);
   return ok();
 }
@@ -344,7 +344,7 @@ async function createGroup(name: string): Promise<ActionResult> {
     state.groups.push({ name, gid, members: [], isSystem: false });
     return ok();
   }
-  const res = await run(`groupadd ${sq(name)}`, { timeoutMs: 15000 });
+  const res = await runArgs("groupadd", [name], { timeoutMs: 15000 });
   if (res.code !== 0) return privFail(res.stderr);
   return ok();
 }
@@ -359,7 +359,7 @@ async function deleteGroup(name: string): Promise<ActionResult> {
     state.users = state.users.map((u) => ({ ...u, groups: u.groups.filter((g) => g !== name) }));
     return ok();
   }
-  const res = await run(`groupdel ${sq(name)}`, { timeoutMs: 15000 });
+  const res = await runArgs("groupdel", [name], { timeoutMs: 15000 });
   if (res.code !== 0) return privFail(res.stderr);
   return ok();
 }

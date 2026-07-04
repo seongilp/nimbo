@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 
 import type { FileServices, SharedFolder, SharesAdminOverview } from "@/lib/types";
-import { run, USE_MOCK } from "./exec";
+import { runArgs, USE_MOCK } from "./exec";
 
 const GiB = 1024 ** 3;
 
@@ -215,7 +215,7 @@ async function loadRealFolders(): Promise<SharedFolder[]> {
 }
 
 async function isActive(unit: string): Promise<boolean> {
-  const { code } = await run(`systemctl is-active --quiet ${unit}`);
+  const { code } = await runArgs("systemctl", ["is-active", "--quiet", unit]);
   return code === 0;
 }
 
@@ -328,8 +328,8 @@ export async function runSharesAction(a: SharesAction): Promise<{ ok: boolean; e
       const enabled = a.enabled ?? !state.services[svc];
       if (!USE_MOCK) {
         const unit = SERVICE_UNIT[svc];
-        const cmd = enabled ? `systemctl enable --now ${unit}` : `systemctl disable --now ${unit}`;
-        const { code, stderr } = await run(cmd, { timeoutMs: 15000 });
+        const toggleArgs = enabled ? ["enable", "--now", unit] : ["disable", "--now", unit];
+        const { code, stderr } = await runArgs("systemctl", toggleArgs, { timeoutMs: 15000 });
         if (code !== 0) return fail(stderr.trim() || "권한 필요");
       }
       state.services = { ...state.services, [svc]: enabled };
@@ -345,8 +345,8 @@ async function persistConf(): Promise<{ ok: boolean; error?: string }> {
   try {
     await writeFile(SMB_CONF, generateSmbConf(), "utf8");
     await writeFile(NFS_EXPORTS, generateExportsConf(), "utf8");
-    await run("systemctl reload-or-restart smbd");
-    await run("exportfs -ra");
+    await runArgs("systemctl", ["reload-or-restart", "smbd"]);
+    await runArgs("exportfs", ["-ra"]);
     return ok();
   } catch (err) {
     return fail((err as Error).message + " — needs root to write shares config");

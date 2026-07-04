@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import type { NimboAuthConfig, NimboRole } from "@/lib/types";
-import { run, runArgs, shq, USE_MOCK } from "./exec";
+import { runArgs, USE_MOCK } from "./exec";
 import { logAudit } from "./audit";
 import { deriveSubnet, ipInCidrs, isValidCidrOrIp, normalizeIp } from "./ipacl";
 import { getSecret as readSecret, isInsecureSecret, isProduction } from "@/lib/secret";
@@ -154,8 +154,9 @@ export async function verifyOsPassword(user: string, password: string): Promise<
   const py =
     "import sys,crypt;h=sys.argv[1];p=sys.stdin.readline().rstrip(chr(10));" +
     "sys.stdout.write('OK' if crypt.crypt(p,h)==h else 'NO')";
-  const cmd = `printf '%s\\n' ${shq(password)} | python3 -c ${shq(py)} ${shq(hash)}`;
-  const res = await run(cmd, { timeoutMs: 8000 });
+  // Pass the password on stdin (never on argv, so it can't leak via `ps`); the
+  // hash goes as argv[1] and the crypt compare runs with no shell.
+  const res = await runArgs("python3", ["-c", py, hash], { input: `${password}\n`, timeoutMs: 8000 });
   return res.code === 0 && res.stdout.trim() === "OK";
 }
 

@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import os from "node:os";
 
 import type { TimeMachineOverview, TimeMachineTarget } from "@/lib/types";
-import { run, USE_MOCK } from "./exec";
+import { runArgs, USE_MOCK } from "./exec";
 
 const TiB = 1024 ** 4;
 const SMB_TM_CONF = process.env.SMB_TM_CONF ?? "/etc/samba/smb.conf.d/timemachine.conf";
@@ -80,7 +80,7 @@ function generateConf(): string {
 /** Best-effort disk usage of a path via `du -sb`. Falls back to 0. */
 async function diskUsage(path: string): Promise<number> {
   if (!PATH_RE.test(path)) return 0;
-  const { stdout, code } = await run(`du -sb ${path}`);
+  const { stdout, code } = await runArgs("du", ["-sb", path]);
   if (code !== 0) return 0;
   const m = stdout.match(/^(\d+)/);
   return m ? Number(m[1]) : 0;
@@ -90,7 +90,7 @@ export async function getTimeMachineOverview(): Promise<TimeMachineOverview> {
   let enabled = state.enabled;
   if (!USE_MOCK) {
     // Reflect the real smbd status when possible.
-    const { code } = await run("systemctl is-active --quiet smbd");
+    const { code } = await runArgs("systemctl", ["is-active", "--quiet", "smbd"]);
     enabled = code === 0;
     state.enabled = enabled;
     // Best-effort refresh of used bytes per target.
@@ -167,7 +167,7 @@ async function persistConf(): Promise<{ ok: boolean; error?: string }> {
   if (USE_MOCK) return ok();
   try {
     await writeFile(SMB_TM_CONF, generateConf(), "utf8");
-    await run("systemctl reload-or-restart smbd");
+    await runArgs("systemctl", ["reload-or-restart", "smbd"]);
     return ok();
   } catch (err) {
     return fail((err as Error).message + " — needs root to write " + SMB_TM_CONF);

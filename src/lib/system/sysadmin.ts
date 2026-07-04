@@ -4,7 +4,7 @@ import type {
   ServiceUnit,
   SystemAdminOverview,
 } from "@/lib/types";
-import { run, USE_MOCK } from "./exec";
+import { runArgs, USE_MOCK } from "./exec";
 
 const MiB = 1024 * 1024;
 
@@ -96,9 +96,13 @@ export async function getSystemAdminOverview(): Promise<SystemAdminOverview> {
 // `systemctl is-enabled` (188+ sudo-wrapped spawns) made /api/system take ~13s.
 async function readEnabledMap(): Promise<Map<string, boolean>> {
   const map = new Map<string, boolean>();
-  const { stdout, code } = await run(
-    "systemctl list-unit-files --type=service --no-legend --no-pager --plain"
-  );
+  const { stdout, code } = await runArgs("systemctl", [
+    "list-unit-files",
+    "--type=service",
+    "--no-legend",
+    "--no-pager",
+    "--plain",
+  ]);
   if (code !== 0) return map;
   for (const line of stdout.split("\n")) {
     const parts = line.trim().split(/\s+/);
@@ -111,7 +115,14 @@ async function readEnabledMap(): Promise<Map<string, boolean>> {
 
 async function readServices(): Promise<ServiceUnit[]> {
   const [list, enabledMap] = await Promise.all([
-    run("systemctl list-units --type=service --all --no-legend --no-pager --plain"),
+    runArgs("systemctl", [
+      "list-units",
+      "--type=service",
+      "--all",
+      "--no-legend",
+      "--no-pager",
+      "--plain",
+    ]),
     readEnabledMap(),
   ]);
   const { stdout, code } = list;
@@ -136,7 +147,7 @@ async function readServices(): Promise<ServiceUnit[]> {
 }
 
 async function readCron(): Promise<CronJob[]> {
-  const { stdout, code } = await run("crontab -l");
+  const { stdout, code } = await runArgs("crontab", ["-l"]);
   if (code !== 0 || !stdout.trim()) return [];
   const jobs: CronJob[] = [];
   let pendingComment = "";
@@ -177,7 +188,13 @@ const PRIORITY_LEVEL: Record<string, LogEntry["level"]> = {
 };
 
 async function readLogs(): Promise<LogEntry[]> {
-  const { stdout, code } = await run("journalctl -n 100 -o short-iso --no-pager");
+  const { stdout, code } = await runArgs("journalctl", [
+    "-n",
+    "100",
+    "-o",
+    "short-iso",
+    "--no-pager",
+  ]);
   if (code !== 0 || !stdout.trim()) return [];
   const entries: LogEntry[] = [];
   for (const line of stdout.split("\n")) {
@@ -249,7 +266,7 @@ export async function runSystemAction(a: SystemAction): Promise<{ ok: boolean; e
         else if (a.kind === "service.disable") svc.enabled = false;
         return ok();
       }
-      const { code, stderr } = await run(`systemctl ${verb} ${name}`, { timeoutMs: 20000 });
+      const { code, stderr } = await runArgs("systemctl", [verb, name], { timeoutMs: 20000 });
       return code === 0 ? ok() : fail(stderr.trim() || "root/sudoers 권한이 필요합니다");
     }
 

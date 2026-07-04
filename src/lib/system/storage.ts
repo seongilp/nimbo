@@ -1,5 +1,5 @@
 import type { DiskInfo, DiskTransport, PartitionInfo } from "@/lib/types";
-import { run, USE_MOCK } from "./exec";
+import { runArgs, USE_MOCK } from "./exec";
 import { mockDisks } from "./mock";
 
 interface LsblkNode {
@@ -92,7 +92,7 @@ function preferById(current: string | null, candidate: string): string {
 
 async function resolveDiskLinks(): Promise<Map<string, DiskLinks>> {
   const map = new Map<string, DiskLinks>();
-  const { stdout, code } = await run("ls -l /dev/disk/by-id /dev/disk/by-path 2>/dev/null");
+  const { stdout, code } = await runArgs("ls", ["-l", "/dev/disk/by-id", "/dev/disk/by-path"]);
   if (code !== 0 || !stdout) return map;
   let section: "id" | "path" | null = null;
   for (const line of stdout.split("\n")) {
@@ -148,7 +148,7 @@ interface SmartJson {
 }
 
 async function smartDetail(device: string): Promise<SmartDetail> {
-  const json = await run(`smartctl -j -a -n standby ${device} 2>/dev/null`, { timeoutMs: 12000 });
+  const json = await runArgs("smartctl", ["-j", "-a", "-n", "standby", device], { timeoutMs: 12000 });
   if (json.stdout && json.stdout.trim().startsWith("{")) {
     try {
       const j = JSON.parse(json.stdout) as SmartJson;
@@ -188,7 +188,7 @@ async function smartDetail(device: string): Promise<SmartDetail> {
   }
 
   // Fallback: text parse (legacy smartmontools / no JSON support).
-  const { stdout, code } = await run(`smartctl -H -A ${device} 2>/dev/null`, { timeoutMs: 12000 });
+  const { stdout, code } = await runArgs("smartctl", ["-H", "-A", device], { timeoutMs: 12000 });
   if (code !== 0 || !stdout) return EMPTY_SMART;
   const healthy =
     /SMART overall-health self-assessment test result:\s+PASSED/i.test(stdout) ||
@@ -216,9 +216,12 @@ function computeStableId(d: { wwn: string | null; serial: string | null; byId: s
 
 export async function getDisks(): Promise<DiskInfo[]> {
   if (USE_MOCK) return mockDisks();
-  const { stdout, code } = await run(
-    "lsblk -J -b -o NAME,TYPE,SIZE,MODEL,SERIAL,WWN,REV,HCTL,ROTA,TRAN,MOUNTPOINT,FSTYPE,FSAVAIL,FSUSED,FSSIZE"
-  );
+  const { stdout, code } = await runArgs("lsblk", [
+    "-J",
+    "-b",
+    "-o",
+    "NAME,TYPE,SIZE,MODEL,SERIAL,WWN,REV,HCTL,ROTA,TRAN,MOUNTPOINT,FSTYPE,FSAVAIL,FSUSED,FSSIZE",
+  ]);
   if (code !== 0) return mockDisks();
   let parsed: { blockdevices: LsblkNode[] };
   try {

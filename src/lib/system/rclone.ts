@@ -5,7 +5,7 @@ import type {
   RcloneType,
   SyncSchedule,
 } from "@/lib/types";
-import { hasCommand, run, shq, USE_MOCK } from "./exec";
+import { hasCommand, runArgs, USE_MOCK } from "./exec";
 
 const GiB = 1024 ** 3;
 
@@ -113,7 +113,7 @@ function parseType(raw: string): RcloneType {
 
 async function loadRealRemotes(): Promise<RcloneRemote[]> {
   // Prefer `--long` which prints `name: type`; fall back to plain names.
-  const long = await run("rclone listremotes --long");
+  const long = await runArgs("rclone", ["listremotes", "--long"]);
   const lines = (long.code === 0 ? long.stdout : "").split("\n").map((l) => l.trim()).filter(Boolean);
   const entries: { name: string; type: RcloneType }[] = [];
 
@@ -128,7 +128,7 @@ async function loadRealRemotes(): Promise<RcloneRemote[]> {
   }
 
   if (entries.length === 0) {
-    const plain = await run("rclone listremotes");
+    const plain = await runArgs("rclone", ["listremotes"]);
     const names = (plain.code === 0 ? plain.stdout : "")
       .split("\n")
       .map((l) => l.trim().replace(/:$/, ""))
@@ -141,7 +141,7 @@ async function loadRealRemotes(): Promise<RcloneRemote[]> {
     let usedBytes: number | null = null;
     let totalBytes: number | null = null;
     if (REMOTE_NAME_RE.test(e.name)) {
-      const about = await run(`rclone about ${e.name}: --json`, { timeoutMs: 15000 });
+      const about = await runArgs("rclone", ["about", `${e.name}:`, "--json"], { timeoutMs: 15000 });
       if (about.code === 0) {
         try {
           const j = JSON.parse(about.stdout) as { used?: number; total?: number };
@@ -257,17 +257,18 @@ export async function runCloudAction(a: CloudAction): Promise<{ ok: boolean; err
         state.remotes.push({ name, type, usedBytes: seeded != null ? 0 : null, totalBytes: seeded });
         return ok();
       }
-      // Build `rclone config create <name> <type> key 'value' key 'value' ...`
+      // Build `rclone config create <name> <type> key value key value ...`
       const pairs = Object.entries(config).filter(([k, v]) => /^[a-z0-9_]+$/i.test(k) && v !== "" && v != null);
-      const argStr = pairs.map(([k, v]) => `${k} ${shq(v)}`).join(" ");
-      const { code, stderr } = await run(`rclone config create ${shq(name)} ${type} ${argStr}`, { timeoutMs: 20000 });
+      const args: string[] = ["config", "create", name, type];
+      for (const [k, v] of pairs) args.push(k, v);
+      const { code, stderr } = await runArgs("rclone", args, { timeoutMs: 20000 });
       if (code !== 0) return fail(stderr.trim().split("\n").slice(-1)[0] || "config create failed");
       return ok();
     }
     case "remote.delete": {
       if (!a.name || !REMOTE_NAME_RE.test(a.name)) return fail("invalid remote name");
       if (!USE_MOCK) {
-        const { code, stderr } = await run(`rclone config delete ${a.name}`, { timeoutMs: 15000 });
+        const { code, stderr } = await runArgs("rclone", ["config", "delete", a.name], { timeoutMs: 15000 });
         if (code !== 0) return fail(stderr.trim().split("\n").slice(-1)[0] || "config delete failed");
       }
       state.remotes = state.remotes.filter((r) => r.name !== a.name);
@@ -329,8 +330,9 @@ async function runJob(job: CloudJob): Promise<{ ok: boolean; error?: string }> {
     return fail("invalid endpoint");
   }
   const op = job.operation === "copy" ? "copy" : "sync";
-  const { stdout, stderr, code } = await run(
-    `rclone ${op} ${src} ${dst} --stats-one-line`,
+  const { stdout, stderr, code } = await runArgs(
+    "rclone",
+    [op, src, dst, "--stats-one-line"],
     { timeoutMs: 30 * 60_000 }
   );
   job.lastRun = Date.now();

@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { AuditEntry, AuditOverview } from "@/lib/types";
-import { run, USE_MOCK } from "./exec";
+import { runArgs, USE_MOCK } from "./exec";
 
 const MAX_ENTRIES = 500;
 
@@ -84,7 +84,7 @@ let entries: AuditEntry[] = USE_MOCK ? buildSeed() : [];
 const LAST_RE = /^(\S+)\s+(\S+)\s+(\S*)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})/;
 
 async function readLoginHistory(): Promise<AuditEntry[]> {
-  const { stdout, code } = await run("last -F -i -n 40");
+  const { stdout, code } = await runArgs("last", ["-F", "-i", "-n", "40"]);
   if (code !== 0 || !stdout.trim()) return [];
   const out: AuditEntry[] = [];
   for (const line of stdout.split("\n")) {

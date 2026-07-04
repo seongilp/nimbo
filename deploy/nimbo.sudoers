@@ -1,24 +1,44 @@
-# ── Nimbo least-privilege sudoers (HARDENING TARGET, not the default) ──────
+# ── Nimbo least-privilege sudoers (HARDENING TARGET, not yet the default) ──
 #
 # 현재 상태(중요):
 #   (a) install.sh는 호환성을 위해 nimbo 계정에 blanket `NOPASSWD: ALL`을 설치한다.
-#       레거시 읽기 경로(exec.ts의 `sudo -n bash -c '<cmd>'`, env NIMBO_SUDO=1)가
-#       임의의 셸 명령을 실행해야 하기 때문이다. 즉 기본 설치는 이 파일을 쓰지 않는다.
+#       즉 기본 설치는 아직 이 파일을 쓰지 않는다.
 #   (b) 이 파일은 그 blanket sudo를 대체할 **최소권한 하드닝 타깃**이다. 아래 화이트
 #       리스트에 명시된 바이너리만 무암호 sudo로 허용한다.
 #   (c) 이 파일을 쓰려면 *모든* 권한 명령이 argv로(`sudo -n <binary> <args>`, no shell)
-#       실행돼야 한다. `bash -c` 경로가 하나라도 남아 있으면 그 동작이 깨진다.
+#       실행돼야 한다. `bash -c` 경로가 남아 있으면 그 동작이 깨진다.
 #
-#   [현황 — 정확히] 읽기·쓰기 상당수가 아직 `run()`(=`sudo bash -c '<cmd>'`)로 실행된다
-#   (security/host/packages/rsync/rclone/hardware/… 모듈). 다만 셸에 보간되는 *모든
-#   사용자 입력값은 엄격히 검증*된다(정규식·화이트리스트: HOSTNAME_RE/TZ_RE/IFACE_RE/
-#   IP_RE/JAIL_RE/docker VALID_ACTIONS/packages ID_RE+CATALOG 등) → 명령 인젝션은
-#   막혀 있고 회귀 테스트(integration.test.ts "command-injection defenses")로 고정.
-#   따라서 blanket sudo는 *라이브 취약점이 아니라 심층방어 공백*이다.
-#   argv 마이그레이션은 점진 진행 중(docker.ts·fail2ban.ts 완료; 나머지 예정) — 전부
-#   argv가 된 뒤에만 이 최소권한 sudoers로 교체한다.
+#   [현황 — 정확히] **데이터플레인 argv 마이그레이션 완료.** 모든 시스템 모듈의
+#   권한 명령이 이제 runArgs()(=`sudo -n <binary> <args>`, no shell)로 실행된다:
+#     docker · fail2ban · host · security · packages · rsync · rclone · hardware ·
+#     stats · storage · sysadmin · users · tm · zfs(읽기/제어) · audit · shares-admin · auth
+#   셸에 남은 `run()`은 딱 2곳뿐이며 둘 다 의도적 예외다(아래 "SHELL 예외" 참조).
+#   추가로 셸/argv에 보간되는 *모든 사용자 입력값은 엄격히 검증*된다(정규식·화이트
+#   리스트: HOSTNAME_RE/TZ_RE/IFACE_RE/IP_RE/JAIL_RE/NAME_RE/PATH_RE/docker
+#   VALID_ACTIONS/packages ID_RE+CATALOG 등) → 명령 인젝션은 막혀 있고 회귀 테스트
+#   (integration.test.ts "command-injection defenses")로 고정.
 #
-# 적용 방법(레거시 읽기 경로를 모두 argv로 옮긴 뒤에만):
+# ── SHELL 예외 2곳 (이 화이트리스트로는 덮을 수 없음) ──────────────────────
+#   1) 인터랙티브 터미널: src/lib/system/terminal.ts realCommand() — /api/terminal
+#      (admin 전용·감사됨)은 사용자가 입력한 *임의 셸 명령*을 실행한다. 본질적으로
+#      argv 화이트리스트로 표현 불가. 채택 시엔 명령 화이트리스트가 아니라 **Runas
+#      제한**으로 다뤄야 한다: 터미널은 root가 아니라 *로그인한 OS 사용자*로만 실행
+#      (UI의 xterm(PTY)은 이미 deploy/terminal-pty가 `sudo -n -u <user> -i`로 그렇게
+#      동작한다). 예: `nimbo ALL=(%nimbo-users) NOPASSWD: ALL` (root 아님).
+#   2) ZFS 복제 파이프: src/lib/system/zfs.ts:881 exec() — `zfs send | zfs receive`
+#      (옵션으로 ssh 경유). 프로세스↔프로세스 **바이너리 스트리밍 파이프**라 현재
+#      runArgs 프리미티브로 표현 불가(멀티GB 스트림을 문자열 버퍼링하면 손상). 채택
+#      전 exec.ts에 스트리밍 파이프 프리미티브를 추가해야 한다. 보간값(src/dst/
+#      remoteHost)은 SNAP_RE/NAME_RE/HOST_RE로 전량 검증되어 인젝션은 차단됨.
+#
+# ── 이 파일로 교체(adopt)하기 전에 필요한 것 ──────────────────────────────
+#   - 위 예외 1) 터미널 Runas 스코핑, 2) zfs 복제용 파이프 프리미티브
+#   - shares-admin: 설정파일 쓰기는 아직 node writeFile(무-sudo)이다 — 채택 시
+#     nimbo가 /etc/samba/smb.conf.d, /etc/exports.d 에 쓸 수 있어야 한다(디렉터리
+#     소유권 부여, 또는 `tee` argv 경로로 전환).
+#   - 아래 Cmnd_Alias 목록을 실제 사용 바이너리와 대조해 최종 감사(초안임).
+#
+# 적용 방법(위 선행조건을 만족한 뒤에만):
 #   visudo -cf deploy/nimbo.sudoers && cp deploy/nimbo.sudoers /etc/sudoers.d/nimbo
 # 그리고 /etc/nimbo/nimbo.env 에 NIMBO_SUDO=1 이 설정돼 있어야 한다(앱이 권한 명령
 # 앞에 `sudo -n`을 붙인다). systemd 유닛의 User=는 이미 nimbo 이다.
@@ -30,14 +50,24 @@
 # ⚠ 새 권한 명령을 추가할 때마다 이 화이트리스트도 같이 갱신해야 한다. 빠지면 해당
 #   API가 안전하게 "권한 필요"로 거부된다(시스템은 깨지지 않음).
 
-Cmnd_Alias NIMBO_SVC   = /usr/bin/systemctl, /bin/systemctl
+Cmnd_Alias NIMBO_SVC   = /usr/bin/systemctl, /bin/systemctl, /usr/bin/journalctl, /bin/journalctl
 Cmnd_Alias NIMBO_ZFS   = /usr/sbin/zpool, /usr/sbin/zfs, /sbin/zpool, /sbin/zfs
 Cmnd_Alias NIMBO_DISK  = /usr/sbin/smartctl, /usr/bin/lsblk, /usr/sbin/lsblk
-Cmnd_Alias NIMBO_NET   = /usr/sbin/ufw, /usr/bin/nmcli, /usr/bin/hostnamectl, /usr/bin/timedatectl
-Cmnd_Alias NIMBO_USER  = /usr/sbin/useradd, /usr/sbin/userdel, /usr/sbin/usermod, /usr/sbin/groupadd, /usr/sbin/groupdel, /usr/sbin/chpasswd
+Cmnd_Alias NIMBO_NET   = /usr/sbin/ufw, /usr/bin/firewall-cmd, /usr/bin/nmcli, /usr/bin/hostnamectl, /usr/bin/timedatectl, /usr/sbin/ip, /bin/ip
+Cmnd_Alias NIMBO_USER  = /usr/sbin/useradd, /usr/sbin/userdel, /usr/sbin/usermod, /usr/sbin/groupadd, /usr/sbin/groupdel, /usr/sbin/chpasswd, /usr/bin/getent
 Cmnd_Alias NIMBO_SHARE = /usr/sbin/exportfs, /usr/bin/tee /etc/samba/*, /usr/bin/tee /etc/exports*
 Cmnd_Alias NIMBO_BACKUP= /usr/bin/rsync, /usr/bin/rclone
 Cmnd_Alias NIMBO_CERT  = /usr/bin/certbot, /usr/bin/openssl
 Cmnd_Alias NIMBO_DOCKER= /usr/bin/docker
+Cmnd_Alias NIMBO_UPS   = /usr/bin/upsc, /usr/bin/upscmd, /bin/upsc, /bin/upscmd
+Cmnd_Alias NIMBO_F2B   = /usr/bin/fail2ban-client, /bin/fail2ban-client
+# ⚠ 아래 READ 유틸은 편의상 넓게 열려 있다: `sudo cat/grep <파일>`은 사실상 임의
+#   root 파일 읽기 권한이다. 채택 전 감사 필요. 다수 대상(/sys·/proc·/etc/os-release)은
+#   world-readable라 sudo가 애초에 불필요하다(NIMBO_SUDO=1이 무조건 감싸는 부작용).
+Cmnd_Alias NIMBO_READ  = /usr/bin/cat, /bin/cat, /usr/bin/grep, /bin/grep, /usr/bin/ps, /bin/ps, /usr/bin/ls, /bin/ls, /usr/bin/du, /usr/bin/last, /usr/bin/crontab, /usr/bin/python3, /usr/bin/env python3
 
-nimbo ALL=(root) NOPASSWD: NIMBO_SVC, NIMBO_ZFS, NIMBO_DISK, NIMBO_NET, NIMBO_USER, NIMBO_SHARE, NIMBO_BACKUP, NIMBO_CERT, NIMBO_DOCKER
+nimbo ALL=(root) NOPASSWD: NIMBO_SVC, NIMBO_ZFS, NIMBO_DISK, NIMBO_NET, NIMBO_USER, NIMBO_SHARE, NIMBO_BACKUP, NIMBO_CERT, NIMBO_DOCKER, NIMBO_UPS, NIMBO_F2B, NIMBO_READ
+
+# 인터랙티브 터미널(예외 1): root가 아니라 로그인 OS 사용자로만. 채택 시 활성화.
+# %nimbo-users 그룹은 install.sh가 관리한다. (root는 제외 — 터미널로 root 셸 금지)
+# nimbo ALL=(%nimbo-users) NOPASSWD: ALL

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import os from "node:os";
 
 import type { ProcessInfo, SystemOverview } from "@/lib/types";
-import { run, USE_MOCK } from "./exec";
+import { runArgs, USE_MOCK } from "./exec";
 import { mockOverview, mockProcesses } from "./mock";
 
 // --- CPU usage via /proc/stat sampling -----------------------------------
@@ -113,9 +113,9 @@ async function readMemory() {
 }
 
 async function readTemperature(): Promise<number | null> {
-  const { stdout, code } = await run(
-    "cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null"
-  );
+  const { stdout, code } = await runArgs("cat", [
+    "/sys/class/thermal/thermal_zone0/temp",
+  ]);
   if (code === 0 && stdout.trim()) {
     const raw = Number(stdout.trim());
     if (!Number.isNaN(raw)) return Number((raw / 1000).toFixed(1));
@@ -124,9 +124,7 @@ async function readTemperature(): Promise<number | null> {
 }
 
 async function readDistro(): Promise<string> {
-  const { stdout, code } = await run(
-    "cat /etc/os-release 2>/dev/null | grep PRETTY_NAME"
-  );
+  const { stdout, code } = await runArgs("cat", ["/etc/os-release"]);
   if (code === 0) {
     const m = stdout.match(/PRETTY_NAME="?([^"\n]+)"?/);
     if (m) return m[1];
@@ -167,12 +165,16 @@ export async function getOverview(): Promise<SystemOverview> {
 
 export async function getProcesses(): Promise<ProcessInfo[]> {
   if (USE_MOCK) return mockProcesses();
-  const { stdout, code } = await run(
-    "ps -eo pid,user,%cpu,%mem,comm --sort=-%cpu --no-headers | head -n 30"
-  );
+  const { stdout, code } = await runArgs("ps", [
+    "-eo",
+    "pid,user,%cpu,%mem,comm",
+    "--sort=-%cpu",
+    "--no-headers",
+  ]);
   if (code !== 0) return mockProcesses();
   const procs: ProcessInfo[] = [];
-  for (const line of stdout.split("\n")) {
+  // Equivalent of the former `| head -n 30`: take the first 30 output lines.
+  for (const line of stdout.split("\n").slice(0, 30)) {
     const parts = line.trim().split(/\s+/);
     if (parts.length < 5) continue;
     const [pid, user, cpu, mem, ...rest] = parts;

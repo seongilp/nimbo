@@ -54,6 +54,7 @@ export interface DiskInfo {
   temperatureC: number | null;
   smartStatus: "passed" | "warning" | "failed" | "unknown";
   partitions: PartitionInfo[];
+  zfsPool?: string | null; // name of the ZFS pool this disk is a member of, if any
   // ---- stable identity (survives reboots / bus renumbering) ----
   stableId: string; // wwn:… | serial:… | byid:… | dev:… (used as the inventory key)
   serial: string | null;

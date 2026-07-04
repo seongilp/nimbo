@@ -50,6 +50,53 @@ function transportOf(node: LsblkNode): DiskTransport {
   return "unknown";
 }
 
+// Reduce any partition/device name to its whole-disk kernel name.
+//   sdc1 -> sdc,  nvme0n1p1 -> nvme0n1,  nvme0n1 -> nvme0n1,  mmcblk0p1 -> mmcblk0
+function kernelDiskOf(dev: string): string {
+  const base = dev.split("/").pop() ?? dev;
+  if (/^(nvme\d+n\d+|mmcblk\d+|loop\d+)/.test(base)) return base.replace(/p\d+$/, "");
+  return base.replace(/\d+$/, "");
+}
+
+// Map each kernel disk (/dev/sdX) to the ZFS pool that owns it. `zpool list -PH`
+// prints each pool's leaf devices as full by-id paths (-P); we resolve those
+// back to kernel disks via the /dev/disk/by-id symlinks. Empty when ZFS isn't
+// installed or no pool exists, so non-ZFS hosts get no membership at all.
+async function getZfsDiskPools(): Promise<Map<string, string>> {
+  const diskPool = new Map<string, string>();
+  const list = await runArgs("zpool", ["list", "-v", "-PH"]);
+  if (list.code !== 0 || !list.stdout.trim()) return diskPool;
+
+  // by-id link basename (incl. -partN) -> whole-disk kernel name.
+  const byId = new Map<string, string>();
+  const ls = await runArgs("ls", ["-l", "/dev/disk/by-id"]);
+  if (ls.code === 0) {
+    for (const line of ls.stdout.split("\n")) {
+      const m = line.match(/(\S+)\s+->\s+\.\.\/\.\.\/(\S+)$/);
+      if (!m) continue;
+      const name = m[1].split("/").pop() ?? m[1];
+      byId.set(name, kernelDiskOf(m[2]));
+    }
+  }
+
+  let pool = "";
+  for (const raw of list.stdout.split("\n")) {
+    if (!raw.trim()) continue;
+    const fields = raw.split("\t");
+    const name = (fields.find((f) => f.trim() !== "") ?? "").trim();
+    if (!name) continue;
+    const indented = /^\s/.test(raw) || fields[0] === ""; // nested vdev/leaf row
+    if (!indented) { pool = name; continue; } // un-indented = pool row
+    if (!name.startsWith("/dev/")) continue; // vdev group (mirror-0, raidz…)
+    const base = name.split("/").pop() ?? name;
+    const disk = name.startsWith("/dev/disk/by-")
+      ? byId.get(base) ?? byId.get(base.replace(/-part\d+$/, ""))
+      : kernelDiskOf(base); // raw /dev/sdX1 leaf
+    if (disk && pool) diskPool.set("/dev/" + disk, pool);
+  }
+  return diskPool;
+}
+
 function toPartitions(node: LsblkNode): PartitionInfo[] {
   const parts: PartitionInfo[] = [];
   const walk = (n: LsblkNode) => {
@@ -231,6 +278,7 @@ export async function getDisks(): Promise<DiskInfo[]> {
   }
 
   const links = await resolveDiskLinks();
+  const zfsPools = await getZfsDiskPools();
   const disks: DiskInfo[] = [];
   for (const node of parsed.blockdevices ?? []) {
     if (node.type !== "disk") continue;
@@ -248,6 +296,7 @@ export async function getDisks(): Promise<DiskInfo[]> {
       temperatureC: smart.tempC,
       smartStatus: smart.status,
       partitions: toPartitions(node),
+      zfsPool: zfsPools.get(device) ?? null,
       stableId: computeStableId({ wwn, serial, byId: link.byId, model, name: node.name }),
       serial,
       wwn,

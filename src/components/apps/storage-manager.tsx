@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, HardDrive, Cpu as Chip, AlertTriangle, XCircle, Thermometer } from "lucide-react";
+import { CheckCircle2, HardDrive, Cpu as Chip, AlertTriangle, XCircle, Thermometer, Database } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -87,9 +87,18 @@ function DiskCard({ disk }: { disk: DiskInfo }) {
             {disk.type === "nvme" ? <Chip className="size-5" /> : <HardDrive className="size-5" />}
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{disk.device}</span>
               <Badge variant="outline" className="text-[10px]">{TYPE_LABEL[disk.type]}</Badge>
+              {disk.zfsPool && (
+                <>
+                  <Badge variant="outline" className="border-sky-500/40 text-[10px] text-sky-400">ZFS</Badge>
+                  <Badge variant="secondary" className="gap-1 text-[10px] font-normal">
+                    <Database className="size-3" />
+                    {disk.zfsPool}
+                  </Badge>
+                </>
+              )}
             </div>
             <p className="text-xs text-muted-foreground">{disk.model}</p>
           </div>

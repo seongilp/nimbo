@@ -50,20 +50,26 @@ function b64urlToBuf(s) {
   return Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64");
 }
 function verifyToken(token) {
-  if (PROD && (!SECRET || SECRET === DEV_SECRET)) return null;
-  if (!token || !token.includes(".")) return null;
-  const [payload, sig] = token.split(".");
-  const expected = crypto
-    .createHmac("sha256", SECRET || DEV_SECRET)
-    .update(payload)
-    .digest()
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-  if (sig.length !== expected.length) return null;
-  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  // Wrapped so a malformed/forged cookie can never throw out of here and crash
+  // the sidecar (a stray throw would loop under Restart=always = unauth DoS).
   try {
+    if (PROD && (!SECRET || SECRET === DEV_SECRET)) return null;
+    if (!token || !token.includes(".")) return null;
+    const [payload, sig] = token.split(".");
+    const expected = crypto
+      .createHmac("sha256", SECRET || DEV_SECRET)
+      .update(payload)
+      .digest()
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    // Compare BYTE lengths (Buffer), not UTF-16 string .length — a multibyte
+    // sig with the same char count would otherwise make timingSafeEqual throw.
+    const sigBuf = Buffer.from(sig);
+    const expBuf = Buffer.from(expected);
+    if (sigBuf.length !== expBuf.length) return null;
+    if (!crypto.timingSafeEqual(sigBuf, expBuf)) return null;
     const data = JSON.parse(b64urlToBuf(payload).toString());
     if (typeof data.exp !== "number" || data.exp < Date.now()) return null;
     return { u: data.u, r: data.r === "admin" ? "admin" : "user" };
@@ -76,6 +82,11 @@ function cookie(req, name) {
   const hit = raw.split(";").map((s) => s.trim()).find((s) => s.startsWith(name + "="));
   return hit ? decodeURIComponent(hit.slice(name.length + 1)) : undefined;
 }
+
+// Backstop: a stray error must never take the sidecar down — Restart=always
+// would otherwise let a malformed request crash-loop it (unauthenticated DoS).
+process.on("uncaughtException", (e) => console.error("[terminal] uncaughtException:", (e && e.message) || e));
+process.on("unhandledRejection", (e) => console.error("[terminal] unhandledRejection:", (e && e.message) || e));
 
 const server = http.createServer((_req, res) => {
   res.writeHead(426, { "Content-Type": "text/plain" });

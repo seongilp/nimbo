@@ -50,12 +50,17 @@ export function signToken(user: string, role: NimboRole): string {
 }
 
 export function verifyToken(token: string | undefined): { u: string; r: NimboRole; exp: number } | null {
-  if (!secretUsable()) return null; // fail closed: never trust tokens signed with the dev key in prod
-  if (!token || !token.includes(".")) return null;
-  const [payload, sig] = token.split(".");
-  const expected = b64url(crypto.createHmac("sha256", getSecret()).update(payload).digest());
-  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  // Fully wrapped so a malformed/forged token can never throw (a multibyte sig
+  // of equal char-length would make timingSafeEqual throw a RangeError otherwise).
   try {
+    if (!secretUsable()) return null; // fail closed: never trust tokens signed with the dev key in prod
+    if (!token || !token.includes(".")) return null;
+    const [payload, sig] = token.split(".");
+    const expected = b64url(crypto.createHmac("sha256", getSecret()).update(payload).digest());
+    // Compare BYTE lengths (Buffer), not UTF-16 string .length.
+    const sigBuf = Buffer.from(sig);
+    const expBuf = Buffer.from(expected);
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return null;
     const data = JSON.parse(Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString());
     if (typeof data.exp !== "number" || data.exp < Date.now()) return null;
     return { u: data.u, r: data.r === "admin" ? "admin" : "user", exp: data.exp };

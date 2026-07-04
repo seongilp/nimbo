@@ -22,9 +22,12 @@ function deny(status: number, error: string): NextResponse {
 
 /**
  * Authorization gate for route handlers. Returns the {@link Session} on success,
- * or a ready-to-return {@link NextResponse} error on failure. The middleware
- * already enforces that *a* session exists; this adds the role check the
- * middleware cannot do, and must be called by every mutating handler.
+ * or a ready-to-return {@link NextResponse} error on failure.
+ *
+ * Defense in depth: the middleware now default-denies the admin API namespaces
+ * (ADMIN_API_PREFIXES in middleware.ts) for non-admin sessions, so reads AND
+ * writes there are role-gated at the edge. Still call this in every PRIVILEGED
+ * handler (read and write) so protection never depends on a route being listed.
  *
  *   const gate = await requireRole("admin");
  *   if (gate instanceof NextResponse) return gate;

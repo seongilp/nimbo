@@ -180,3 +180,27 @@ describe("File Station scope — per-user home, admin vs non-admin", () => {
     expect(d.path).toBe("/etc");
   });
 });
+
+describe("command-injection defenses — inputs validated before any privileged exec", () => {
+  it("docker: rejects shell metacharacters in id and non-allowlisted actions", async () => {
+    const { containerAction } = await import("./docker");
+    expect((await containerAction("abc; rm -rf /", "start")).ok).toBe(false);
+    expect((await containerAction("$(reboot)", "start")).ok).toBe(false);
+    expect((await containerAction("abc123", "start; evil")).ok).toBe(false);
+    expect((await containerAction("abc123", "start")).ok).toBe(true); // valid → proceeds
+  });
+
+  it("fail2ban: rejects injection in jail/ip", async () => {
+    const { runFail2banAction } = await import("./fail2ban");
+    expect((await runFail2banAction({ kind: "unban", jail: "sshd; x", ip: "1.2.3.4" })).ok).toBe(false);
+    expect((await runFail2banAction({ kind: "unban", jail: "sshd", ip: "1.2.3.4 && rm" })).ok).toBe(false);
+    expect((await runFail2banAction({ kind: "unban", jail: "sshd", ip: "203.0.113.9" })).ok).toBe(true);
+  });
+
+  it("host: rejects injection in hostname/timezone", async () => {
+    const { runHostAction } = await import("./host");
+    expect((await runHostAction({ kind: "host.setHostname", hostname: "nas; rm -rf /" })).ok).toBe(false);
+    expect((await runHostAction({ kind: "host.setHostname", hostname: "$(reboot)" })).ok).toBe(false);
+    expect((await runHostAction({ kind: "time.setTimezone", timezone: "Asia/Seoul; evil" })).ok).toBe(false);
+  });
+});

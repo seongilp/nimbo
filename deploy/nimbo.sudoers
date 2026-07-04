@@ -8,8 +8,15 @@
 #       리스트에 명시된 바이너리만 무암호 sudo로 허용한다.
 #   (c) 이 파일을 쓰려면 *모든* 권한 명령이 argv로(`sudo -n <binary> <args>`, no shell)
 #       실행돼야 한다. `bash -c` 경로가 하나라도 남아 있으면 그 동작이 깨진다.
-#       권한 ACTION은 이미 argv로 마이그레이션됐고, 남은 레거시 READ 경로를 옮기는
-#       작업이 진행 중이다(migration in progress).
+#
+#   [현황 — 정확히] 읽기·쓰기 상당수가 아직 `run()`(=`sudo bash -c '<cmd>'`)로 실행된다
+#   (security/host/packages/rsync/rclone/hardware/… 모듈). 다만 셸에 보간되는 *모든
+#   사용자 입력값은 엄격히 검증*된다(정규식·화이트리스트: HOSTNAME_RE/TZ_RE/IFACE_RE/
+#   IP_RE/JAIL_RE/docker VALID_ACTIONS/packages ID_RE+CATALOG 등) → 명령 인젝션은
+#   막혀 있고 회귀 테스트(integration.test.ts "command-injection defenses")로 고정.
+#   따라서 blanket sudo는 *라이브 취약점이 아니라 심층방어 공백*이다.
+#   argv 마이그레이션은 점진 진행 중(docker.ts·fail2ban.ts 완료; 나머지 예정) — 전부
+#   argv가 된 뒤에만 이 최소권한 sudoers로 교체한다.
 #
 # 적용 방법(레거시 읽기 경로를 모두 argv로 옮긴 뒤에만):
 #   visudo -cf deploy/nimbo.sudoers && cp deploy/nimbo.sudoers /etc/sudoers.d/nimbo

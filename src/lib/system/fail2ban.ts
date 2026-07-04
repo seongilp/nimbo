@@ -1,5 +1,5 @@
 import type { Fail2banJail, Fail2banStatus } from "@/lib/types";
-import { hasCommand, run, USE_MOCK } from "./exec";
+import { hasCommand, runArgs, USE_MOCK } from "./exec";
 
 const JAIL_RE = /^[A-Za-z0-9_.\-]+$/;
 const IP_RE = /^[0-9a-fA-F:.]{1,45}$/;
@@ -24,7 +24,7 @@ function num(s: string | undefined): number {
 async function parseJail(name: string): Promise<Fail2banJail> {
   const jail: Fail2banJail = { name, currentlyBanned: 0, totalBanned: 0, currentlyFailed: 0, bannedIps: [] };
   if (!JAIL_RE.test(name)) return jail;
-  const { stdout, code } = await run(`fail2ban-client status ${name}`);
+  const { stdout, code } = await runArgs("fail2ban-client", ["status", name]);
   if (code !== 0) return jail;
   for (const line of stdout.split("\n")) {
     const cf = line.match(/Currently failed:\s*(\d+)/);
@@ -46,11 +46,11 @@ export async function getFail2banStatus(): Promise<Fail2banStatus> {
   if (!(await hasCommand("fail2ban-client"))) {
     return { available: false, running: false, jails: [], isMock: false };
   }
-  const ping = await run("fail2ban-client ping");
+  const ping = await runArgs("fail2ban-client", ["ping"]);
   const running = ping.code === 0 && /pong/i.test(ping.stdout);
   if (!running) return { available: true, running: false, jails: [], isMock: false };
 
-  const status = await run("fail2ban-client status");
+  const status = await runArgs("fail2ban-client", ["status"]);
   const m = status.stdout.match(/Jail list:\s*(.*)$/m);
   const names = m ? m[1].split(",").map((s) => s.trim()).filter(Boolean) : [];
   const jails: Fail2banJail[] = [];
@@ -69,15 +69,18 @@ export async function runFail2banAction(a: Fail2banAction): Promise<{ ok: boolea
     case "unban": {
       if (!a.jail || !JAIL_RE.test(a.jail) || !a.ip || !IP_RE.test(a.ip)) return { ok: false, error: "잘못된 인자" };
       if (USE_MOCK) return { ok: true };
-      const { code, stderr } = await run(`fail2ban-client set ${a.jail} unbanip ${a.ip}`);
+      const { code, stderr } = await runArgs("fail2ban-client", ["set", a.jail, "unbanip", a.ip]);
       return code === 0 ? { ok: true } : { ok: false, error: stderr.trim() || "unban 실패 — 권한 필요" };
     }
     case "toggle": {
       if (USE_MOCK) return { ok: true };
       // start/stop the fail2ban service
       const enable = a.ip === "on"; // reuse field: ip="on"/"off"
-      const cmd = enable ? "systemctl enable --now fail2ban" : "systemctl disable --now fail2ban";
-      const { code, stderr } = await run(cmd, { timeoutMs: 15000 });
+      const { code, stderr } = await runArgs(
+        "systemctl",
+        enable ? ["enable", "--now", "fail2ban"] : ["disable", "--now", "fail2ban"],
+        { timeoutMs: 15000 }
+      );
       return code === 0 ? { ok: true } : { ok: false, error: stderr.trim() || "권한 필요" };
     }
     default:

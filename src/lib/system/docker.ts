@@ -1,5 +1,5 @@
 import type { ContainerInfo } from "@/lib/types";
-import { hasCommand, run, USE_MOCK } from "./exec";
+import { hasCommand, runArgs, USE_MOCK } from "./exec";
 import { mockContainers } from "./mock";
 
 function parseSize(text: string): number {
@@ -34,14 +34,14 @@ export async function getContainers(): Promise<ContainerInfo[]> {
 
   const fmt =
     '{"id":"{{.ID}}","name":"{{.Names}}","image":"{{.Image}}","state":"{{.State}}","status":"{{.Status}}","ports":"{{.Ports}}","created":"{{.CreatedAt}}"}';
-  const { stdout, code } = await run(`docker ps -a --no-trunc --format '${fmt}'`);
+  const { stdout, code } = await runArgs("docker", ["ps", "-a", "--no-trunc", "--format", fmt]);
   if (code !== 0) return mockContainers();
 
   // Live resource stats (no-stream snapshot).
   const statsMap = new Map<string, { cpu: number; mem: number; limit: number }>();
-  const { stdout: statsOut, code: statsCode } = await run(
-    `docker stats --no-stream --format '{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}'`
-  );
+  const { stdout: statsOut, code: statsCode } = await runArgs("docker", [
+    "stats", "--no-stream", "--format", "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}",
+  ]);
   if (statsCode === 0) {
     for (const line of statsOut.split("\n").filter(Boolean)) {
       const [name, cpu, memUsage] = line.split("|");
@@ -90,6 +90,6 @@ export async function containerAction(
   if (!VALID_ACTIONS.has(action)) return { ok: false, error: "Invalid action" };
   if (!/^[a-zA-Z0-9_.-]+$/.test(id)) return { ok: false, error: "Invalid container id" };
   if (USE_MOCK) return { ok: true };
-  const { code, stderr } = await run(`docker ${action} ${id}`, { timeoutMs: 20000 });
+  const { code, stderr } = await runArgs("docker", [action, id], { timeoutMs: 20000 });
   return code === 0 ? { ok: true } : { ok: false, error: stderr.trim() || "Action failed" };
 }

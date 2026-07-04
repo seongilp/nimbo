@@ -1,0 +1,23 @@
+name: ci
+
+# Typecheck + security/unit tests on every push and PR. Keep it fast so it can
+# gate merges; the heavier release build lives in release.yml (tag-triggered).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests (ipacl / auth tokens / client-ip)
+        run: npm test

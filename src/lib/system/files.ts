@@ -1,5 +1,4 @@
 import { realpathSync } from "node:fs";
-import { readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { DirListing, FileContext, FileEntry } from "@/lib/types";
@@ -82,6 +81,28 @@ function permString(mode: number, isDir: boolean): string {
   return out;
 }
 
+// Directory listing that runs with the RIGHT identity — the service account
+// (nimbo) can't read a user's 0700 home. Admins list as root; regular users list
+// as themselves (both via the existing passwordless sudo), so a user sees their
+// own files and can never read another user's private files even if the path
+// check let them. Returns the realpath + a stat of each entry as JSON.
+const LIST_SCRIPT = `
+const fs=require("fs"),path=require("path");
+const rp=fs.realpathSync(process.argv[1]);
+const entries=fs.readdirSync(rp,{withFileTypes:true}).map(function(d){
+  var full=path.join(rp,d.name);
+  try{
+    var ls=fs.lstatSync(full), isLink=ls.isSymbolicLink();
+    var s=isLink?fs.statSync(full):ls;
+    return {name:d.name,type:isLink?"symlink":s.isDirectory()?"directory":"file",
+            size:s.size,mtime:s.mtimeMs,mode:s.mode,uid:s.uid};
+  }catch(e){return null;}
+}).filter(Boolean);
+process.stdout.write(JSON.stringify({path:rp,entries:entries}));
+`;
+
+interface RawEntry { name: string; type: FileEntry["type"]; size: number; mtime: number; mode: number; uid: number }
+
 export async function listDirectory(requested: string, ctx: FileContext): Promise<DirListing> {
   if (USE_MOCK) return mockListing(requested || ctx.home);
 
@@ -91,40 +112,33 @@ export async function listDirectory(requested: string, ctx: FileContext): Promis
   if (!isAllowed(requestedPath, roots)) {
     throw new Error("Access to this path is not permitted");
   }
-  // Resolve symlinks and re-check: a symlink inside an allowed root must not be
-  // a stepping stone out of it.
-  let target = requestedPath;
-  try {
-    target = await realpath(requestedPath);
-    if (!isAllowed(target, roots)) throw new Error("Access to this path is not permitted");
-  } catch (err) {
-    throw err instanceof Error ? err : new Error("Access to this path is not permitted");
+
+  // Read as root (admin) or as the user (non-admin) — never as the nimbo account.
+  const sudo = ctx.isAdmin ? ["-n"] : ["-n", "-u", ctx.user];
+  const { stdout, code, stderr } = await runArgs("sudo", [...sudo, "node", "-e", LIST_SCRIPT, requestedPath]);
+  if (code !== 0) {
+    throw new Error(/EACCES|permission/i.test(stderr) ? "이 폴더를 읽을 권한이 없습니다." : "폴더를 열 수 없습니다.");
   }
 
-  const dirents = await readdir(target, { withFileTypes: true });
-  const entries: FileEntry[] = [];
-  for (const d of dirents) {
-    const full = path.join(target, d.name);
-    try {
-      const s = await stat(full);
-      const type: FileEntry["type"] = d.isSymbolicLink()
-        ? "symlink"
-        : s.isDirectory()
-          ? "directory"
-          : "file";
-      entries.push({
-        name: d.name,
-        path: full,
-        type,
-        sizeBytes: s.size,
-        modified: s.mtimeMs,
-        permissions: permString(s.mode, s.isDirectory()),
-        owner: String(s.uid),
-      });
-    } catch {
-      // Unreadable entry (broken symlink, permission denied) — skip it.
-    }
+  let parsed: { path: string; entries: RawEntry[] };
+  try {
+    parsed = JSON.parse(stdout) as { path: string; entries: RawEntry[] };
+  } catch {
+    throw new Error("폴더 목록을 해석할 수 없습니다.");
   }
+  // Re-check the resolved realpath: a symlink must not escape the allowed roots.
+  const target = parsed.path;
+  if (!isAllowed(target, roots)) throw new Error("Access to this path is not permitted");
+
+  const entries: FileEntry[] = parsed.entries.map((e) => ({
+    name: e.name,
+    path: path.join(target, e.name),
+    type: e.type,
+    sizeBytes: e.size,
+    modified: e.mtime,
+    permissions: permString(e.mode, e.type === "directory"),
+    owner: String(e.uid),
+  }));
   entries.sort((a, b) => {
     if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
     return a.name.localeCompare(b.name);

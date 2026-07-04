@@ -16,8 +16,14 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
+      # Python 3.13 REMOVED the stdlib `crypt` module (PEP 594). OS-password
+      # verification must keep working on it (via ctypes + system libcrypt), so
+      # run the suite under 3.13 — the auth.crypt test exercises the real probe.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - run: npm ci
       - name: Typecheck
         run: npm run typecheck
-      - name: Unit tests (ipacl / auth tokens / client-ip)
+      - name: Unit tests (+ OS-password crypt probe on Python 3.13)
         run: npm test

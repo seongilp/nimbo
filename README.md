@@ -58,16 +58,26 @@ Built with Next.js (App Router) + TypeScript + Tailwind + shadcn/ui + lucide-rea
 | --- | --- |
 | ![Packages](public/screenshots/packages.png) | ![Security](public/screenshots/security.png) |
 
-## Apps (v1)
+## Apps
+
+Highlighted apps (full list of ~19 in [MANUAL.md](MANUAL.md#5-앱별-안내)):
 
 | App | What it does |
 | --- | --- |
+| **Dashboard** | System, CPU, memory, storage, backup and security status at a glance |
 | **File Station** | Browse the filesystem, navigate Samba/NFS shares, breadcrumb + sidebar |
 | **Storage Manager** | Disks, partitions, usage bars, SMART health, temperature |
 | **Disk Inventory** | Stable drive identity (serial/WWN), SMART, ZFS membership, boot-diff history, guided replace wizard |
+| **ZFS** | Pools, datasets, snapshots, replication, vdev and ARC management |
+| **Backup & Sync** | rsync server, rclone cloud (S3/Drive), Time Machine targets, schedules |
 | **Resource Monitor** | Live CPU / memory / network gauges + sparklines, top processes |
 | **Container Manager** | Docker containers with live CPU/mem, ports, start/stop/restart |
+| **Package Center** | One-click self-hosted apps (Jellyfin, Immich, Nextcloud, …) |
+| **Security** | Firewall, security advisor, TOTP 2FA, login history |
+| **Users / Shared Folders** | Linux users & groups; SMB/NFS share management |
 | **Terminal** | Interactive web shell (libghostty + PTY) over a WebSocket sidecar |
+
+Plus System, Certificates, Hardware (UPS/SNMP), Audit Log, Notifications, and Settings.
 
 ## Architecture
 
@@ -115,7 +125,7 @@ if the app is exposed directly, those headers are spoofable.
 | Var | Default | Purpose |
 | --- | --- | --- |
 | `NAS_MOCK` | unset | `1` forces demo data |
-| `NAS_FILE_ROOTS` | shipped `/` (whole filesystem — single-admin appliance); code fallback when unset is `/srv:/mnt:/home:/volume1` | Colon-separated roots File Station may read (symlink-escape is blocked). Restrict to specific paths in `/etc/nimbo/nimbo.env` if you don't want whole-FS browsing. |
+| `NAS_FILE_ROOTS` | code fallback when unset is `/` (whole filesystem — single-admin appliance); `deploy/nimbo.env.example` also ships `/` | Colon-separated roots File Station may read (symlink-escape is blocked). Restrict to specific paths in `/etc/nimbo/nimbo.env` if you don't want whole-FS browsing. |
 | `NIMBO_SECRET` | unset | Session-signing key. **Required in production** — without it the app fails closed (sessions disabled, no login). `install.sh` auto-generates one; set it yourself for Docker (`-e NIMBO_SECRET=$(openssl rand -hex 32)`). |
 
 ## 제거 (Uninstall)

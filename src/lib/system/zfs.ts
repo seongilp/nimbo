@@ -184,6 +184,10 @@ async function runSchedule(s: SnapshotSchedule): Promise<void> {
 
 // Snapshot schedules persist across restarts (real mode) so a reboot does not
 // silently drop the user's snapshot policy.
+// Path derived from a runtime env var, so the file tracer can't resolve it
+// statically and emits a benign "whole project traced" build warning. The
+// bundle stays clean regardless — next.config.ts `outputFileTracingExcludes`
+// strips src/deploy/docs from the standalone output.
 const SCHED_FILE =
   process.env.NIMBO_ZFS_SCHED_FILE ??
   nodePath.join(nodePath.dirname(process.env.NIMBO_AUTH_FILE ?? "/etc/nimbo/users.json"), "zfs-schedules.json");

@@ -171,7 +171,10 @@ export async function getProcesses(): Promise<ProcessInfo[]> {
     "--sort=-%cpu",
     "--no-headers",
   ]);
-  if (code !== 0) return mockProcesses();
+  // Real mode: a `ps` failure returns an empty list — never demo/mock rows.
+  // (Under the old shell pipe `code` was `head`'s exit status, ~always 0, so
+  // this guard used to be unreachable; argv makes it `ps`'s own code.)
+  if (code !== 0) return [];
   const procs: ProcessInfo[] = [];
   // Equivalent of the former `| head -n 30`: take the first 30 output lines.
   for (const line of stdout.split("\n").slice(0, 30)) {

@@ -142,6 +142,32 @@ function recordSuccess(ip: string) {
 }
 
 // ---- OS password verification --------------------------------------------
+// Verify against the shadow hash using the SYSTEM libcrypt (libcrypt.so.1) via
+// Python ctypes — NOT the stdlib `crypt` module, which was deprecated in 3.11
+// and REMOVED in Python 3.13 (PEP 594). ctypes calls the same C library the OS
+// used to hash the password, so every scheme verifies (yescrypt $y$, sha512
+// $6$, sha256 $5$, bcrypt $2$, …). Exported so a CI test can exercise it on
+// Python 3.13 (the mock path would otherwise hide a crypt regression). The
+// script reads the password from stdin and prints exactly OK / NO / ERR.
+export const CRYPT_PROBE_PY = [
+  "import sys,ctypes,ctypes.util",
+  "def load():",
+  " for n in (ctypes.util.find_library('crypt'),'libcrypt.so.1','libcrypt.so'):",
+  "  if not n: continue",
+  "  try: return ctypes.CDLL(n)",
+  "  except OSError: pass",
+  " return None",
+  "lib=load()",
+  "if lib is None:",
+  " sys.stdout.write('ERR'); sys.exit(0)",
+  "lib.crypt.restype=ctypes.c_char_p",
+  "lib.crypt.argtypes=[ctypes.c_char_p,ctypes.c_char_p]",
+  "h=sys.argv[1]",
+  "p=sys.stdin.readline().rstrip(chr(10))",
+  "r=lib.crypt(p.encode(),h.encode())",
+  "sys.stdout.write('OK' if (r is not None and r.decode('utf-8','replace')==h) else 'NO')",
+].join("\n");
+
 export async function verifyOsPassword(user: string, password: string): Promise<boolean> {
   if (!USER_RE.test(user) || !password) return false;
   if (USE_MOCK) return (user === "admin" || user === "root") && password === user;
@@ -151,12 +177,9 @@ export async function verifyOsPassword(user: string, password: string): Promise<
   const hash = stdout.split(":")[1];
   if (!hash || hash.startsWith("!") || hash.startsWith("*") || hash === "") return false;
 
-  const py =
-    "import sys,crypt;h=sys.argv[1];p=sys.stdin.readline().rstrip(chr(10));" +
-    "sys.stdout.write('OK' if crypt.crypt(p,h)==h else 'NO')";
-  // Pass the password on stdin (never on argv, so it can't leak via `ps`); the
-  // hash goes as argv[1] and the crypt compare runs with no shell.
-  const res = await runArgs("python3", ["-c", py, hash], { input: `${password}\n`, timeoutMs: 8000 });
+  // Password on stdin (never on argv, so it can't leak via `ps`); hash as
+  // argv[1]; the crypt compare runs with no shell.
+  const res = await runArgs("python3", ["-c", CRYPT_PROBE_PY, hash], { input: `${password}\n`, timeoutMs: 8000 });
   return res.code === 0 && res.stdout.trim() === "OK";
 }
 
@@ -174,29 +197,32 @@ export async function login(user: string, password: string, ip: string): Promise
   const locked = loginLocked(ip);
   if (locked > 0) return { ok: false, error: `로그인 시도가 많아 잠겼습니다. ${locked}초 후 다시 시도하세요.`, lockedFor: locked };
 
+  // Never echo untrusted input into the fail2ban-matched journal line — the
+  // raw username could carry a newline (survives .trim()) and forge a second
+  // "authentication failure from <ip>" line to ban an arbitrary IP.
+  const safeUser = USER_RE.test(user) ? user : "invalid";
+
   if (!(await verifyOsPassword(user, password))) {
     recordFail(ip);
     // Structured line for the fail2ban `nimbo` jail (read from journald).
-    console.warn(`Nimbo authentication failure from ${ip} (user=${user})`);
+    console.warn(`Nimbo authentication failure from ${ip} (user=${safeUser})`);
     logAudit(user, "로그인", "Nimbo 웹 콘솔", "failed", ip);
     return { ok: false, error: "사용자 이름 또는 비밀번호가 올바르지 않습니다.", lockedFor: loginLocked(ip) || undefined };
   }
-  // Password is correct, but evaluate the IP allow-list BEFORE recording success
-  // — a blocked IP must not clear the brute-force counter or log a false
-  // "success" row. Skipped in mock, and never engaged on the very first login
-  // (the list is empty until admin is claimed — that first login pins the subnet).
+  // Password is correct. Evaluate the IP allow-list and the account
+  // authorization BEFORE recording success — a denied login (wrong IP, or an
+  // account not permitted on Nimbo) must NOT clear the brute-force counter or
+  // log a false "success" row. Both denials count as failures.
   const cfg = await loadAuthConfig();
   const now = Date.now();
 
   if (!USE_MOCK && cfg.allowedCidrs.length > 0 && !ipInCidrs(ip, cfg.allowedCidrs)) {
+    recordFail(ip);
     // Structured line for the fail2ban `nimbo` jail (correct password, wrong IP).
-    console.warn(`Nimbo authentication failure from ${ip} (user=${user}) [ip-not-allowed]`);
+    console.warn(`Nimbo authentication failure from ${ip} (user=${safeUser}) [ip-not-allowed]`);
     logAudit(user, "로그인", "Nimbo 웹 콘솔", "failed", ip);
     return { ok: false, error: "이 IP 주소에서는 로그인할 수 없습니다. 허용된 네트워크에서 접속하세요." };
   }
-
-  recordSuccess(ip);
-  logAudit(user, "로그인", "Nimbo 웹 콘솔", "success", ip);
 
   let role: NimboRole;
   let nextCfg: NimboAuthConfig;
@@ -222,8 +248,17 @@ export async function login(user: string, password: string, ip: string): Promise
     role = "user";
     nextCfg = { ...cfg, users: [...cfg.users, { name: user, role, addedAt: now, lastLogin: now }] };
   } else {
+    // Correct password but this OS account is not permitted on Nimbo — record it
+    // as a failed attempt so it counts toward lockout and audits truthfully.
+    recordFail(ip);
+    console.warn(`Nimbo authentication failure from ${ip} (user=${safeUser}) [not-authorized]`);
+    logAudit(user, "로그인", "Nimbo 웹 콘솔", "failed", ip);
     return { ok: false, error: "이 계정은 Nimbo 접근이 허용되지 않았습니다. 관리자에게 문의하세요." };
   }
+
+  // Fully authorized — now it is safe to clear the counter and log success.
+  recordSuccess(ip);
+  logAudit(user, "로그인", "Nimbo 웹 콘솔", "success", ip);
   await saveAuthConfig(nextCfg);
 
   return { ok: true, token: signToken(user, role), user, role };

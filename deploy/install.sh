@@ -61,11 +61,14 @@ port_in_use() { command -v ss >/dev/null && ss -Htln "sport = :$1" 2>/dev/null |
 free_port() { local p=$1; while port_in_use "$p" || [[ "$p" == "$TERMINAL_PORT" ]]; do p=$((p+1)); done; echo "$p"; }
 choose_port() { # $1 wanted, $2 label
   local want=$1 label=$2 p=$1
-  if port_in_use "$p"; then
+  # Treat the fixed terminal sidecar port as unavailable too — assigning it to
+  # the app would leave the PTY service (hard-wired to 127.0.0.1:$TERMINAL_PORT)
+  # unable to bind, silently killing the terminal feature.
+  if port_in_use "$p" || [[ "$p" == "$TERMINAL_PORT" ]]; then
     local nf; nf=$(free_port $((p+1)))
     if [[ -e /dev/tty ]]; then
       local ans=""; read -rp "⚠ $label 포트 $p 사용 중. 사용할 포트 [$nf]: " ans < /dev/tty || true
-      if [[ "$ans" =~ ^[0-9]+$ ]] && (( ans >= 1 && ans <= 65535 )) && ! port_in_use "$ans"; then p=$ans; else p=$nf; fi
+      if [[ "$ans" =~ ^[0-9]+$ ]] && (( ans >= 1 && ans <= 65535 )) && [[ "$ans" != "$TERMINAL_PORT" ]] && ! port_in_use "$ans"; then p=$ans; else p=$nf; fi
     else
       p=$nf; echo "⚠ $label 포트 $want 사용 중 → $p 로 변경" >&2
     fi
@@ -98,7 +101,41 @@ command -v openssl >/dev/null || pkg_install openssl || true
 # silently assume every port is free and later collide with an existing proxy.
 command -v ss >/dev/null || pkg_install iproute2 || pkg_install iproute || true
 command -v ss >/dev/null || echo "⚠ 'ss' 없음 — 포트 충돌 감지를 건너뜁니다(다른 서비스와 겹칠 수 있음)." >&2
-node_ok() { command -v node >/dev/null && [[ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)" -ge 18 ]]; }
+# python3 + system libcrypt back OS-password verification (auth.ts). REQUIRED —
+# without a working libcrypt the web console can never authenticate anyone.
+command -v python3 >/dev/null || pkg_install python3 || true
+command -v python3 >/dev/null || { echo "python3 설치 실패 — OS 비밀번호 검증에 필요합니다." >&2; exit 1; }
+if ! python3 - <<'PY'
+import sys,ctypes,ctypes.util
+for n in (ctypes.util.find_library('crypt'),'libcrypt.so.1','libcrypt.so'):
+    if not n: continue
+    try:
+        ctypes.CDLL(n); sys.exit(0)
+    except OSError:
+        pass
+sys.exit(1)
+PY
+then
+  echo "==> libcrypt 미탑재 — 설치 시도"
+  case "$PKG" in
+    dnf|yum) pkg_install libxcrypt || true ;;
+    apt)     pkg_install libcrypt1 || pkg_install libcrypt-dev || true ;;
+  esac
+  python3 - <<'PY' || { echo "⚠ libcrypt 로드 실패 — OS 비밀번호 검증 불가(libxcrypt/libcrypt1 필요)." >&2; exit 1; }
+import sys,ctypes,ctypes.util
+for n in (ctypes.util.find_library('crypt'),'libcrypt.so.1','libcrypt.so'):
+    if not n: continue
+    try:
+        ctypes.CDLL(n); sys.exit(0)
+    except OSError:
+        pass
+sys.exit(1)
+PY
+fi
+# Next 16 requires Node >=20.9 (engines). Accept only that; a pre-existing
+# Node 18/19/20.0-20.8 must trigger the NodeSource 20 install below, else the
+# service silently crash-loops or the build aborts.
+node_ok() { command -v node >/dev/null && node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>20||(a===20&&b>=9)?0:1)' 2>/dev/null; }
 if ! node_ok; then
   echo "==> Node.js $NODE_MAJOR 설치"
   case "$PKG" in
@@ -142,10 +179,11 @@ getent group docker >/dev/null 2>&1 && usermod -aG docker "$SVC_USER" || true
 # ⚠ 보안 주의 (BLANKET NOPASSWD): 아래 줄은 nimbo 계정에 *모든* 명령의 무암호 sudo를
 #   부여한다. 이는 레거시 읽기 경로(exec.ts의 `sudo -n bash -c '<cmd>'`)가 임의의 셸
 #   명령을 필요로 하기 때문에 호환성 목적으로 유지된다. 즉, 앱을 탈취당하면 곧 root다.
-#   하드닝 경로: 모든 권한 명령을 argv(`sudo -n <binary> <args>`, no shell)로 옮긴 뒤
-#   deploy/nimbo.sudoers(최소권한 Cmnd_Alias 화이트리스트)로 교체하라. 마이그레이션
-#   진행 중이라 install.sh는 기본적으로 좁은 sudoers를 설치하지 않는다(레거시 읽기
-#   경로가 깨짐). 자세한 내용은 deploy/nimbo.sudoers 헤더 참고.
+#   하드닝 경로: 데이터플레인 argv 마이그레이션은 **완료**됐다(모든 시스템 모듈이
+#   `sudo -n <binary> <args>`, no shell). 다만 셸이 본질인 예외 2곳(인터랙티브
+#   터미널, zfs send|receive 파이프)이 남아 좁은 sudoers로 전면 교체하려면 추가
+#   작업이 필요하다(터미널 Runas 스코핑 + 파이프 프리미티브). 그래서 install.sh는
+#   아직 blanket sudo를 유지한다. 자세한 내용·채택 조건은 deploy/nimbo.sudoers 헤더 참고.
 echo "$SVC_USER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/nimbo
 chmod 440 /etc/sudoers.d/nimbo
 visudo -cf /etc/sudoers.d/nimbo >/dev/null || { rm -f /etc/sudoers.d/nimbo; echo "sudoers 검증 실패" >&2; exit 1; }

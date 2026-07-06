@@ -12,6 +12,8 @@
   <a href="MANUAL.md">📖 사용 매뉴얼</a>
   &nbsp;·&nbsp;
   <a href="DEPLOYMENT.md">🚀 배포 가이드</a>
+  &nbsp;·&nbsp;
+  <a href="https://fairy.hada.io/@lumen">❤️ 후원 / Sponsor</a>
 </p>
 
 <p align="center"><code>curl -fsSL https://raw.githubusercontent.com/seongilp/nimbo/main/deploy/bootstrap.sh | sudo bash</code></p>
@@ -22,6 +24,7 @@
   <img src="https://img.shields.io/badge/Tailwind-v4-38BDF8?logo=tailwindcss&logoColor=white" alt="Tailwind">
   <img src="https://img.shields.io/badge/shadcn%2Fui-slate-0f172a" alt="shadcn/ui">
   <img src="https://img.shields.io/badge/License-MIT-3B82F6" alt="MIT">
+  <a href="https://fairy.hada.io/@lumen"><img src="https://img.shields.io/badge/후원-Sponsor-db61a2" alt="Sponsor"></a>
 </p>
 
 <p align="center"><img src="public/screenshots/desktop.png" width="900" alt="Nimbo desktop console"></p>

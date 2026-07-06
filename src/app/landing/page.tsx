@@ -9,6 +9,7 @@ import {
   Database,
   Disc3,
   HardDrive,
+  Heart,
   Lock,
   type LucideIcon,
   MonitorSmartphone,
@@ -31,6 +32,7 @@ export const metadata: Metadata = {
 
 const REPO = "https://github.com/seongilp/nimbo";
 const MANUAL = `${REPO}/blob/main/MANUAL.md`;
+const SPONSOR = "https://fairy.hada.io/@lumen";
 
 // ---------------------------------------------------------------------------
 
@@ -215,6 +217,14 @@ export default function LandingPage() {
               ))}
             </div>
             <a
+              href={SPONSOR}
+              target="_blank"
+              rel="noreferrer"
+              className="hidden rounded-full px-3.5 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
+            >
+              후원
+            </a>
+            <a
               href={REPO}
               target="_blank"
               rel="noreferrer"
@@ -275,6 +285,15 @@ export default function LandingPage() {
           >
             배포 가이드
             <ArrowRight className="size-4" />
+          </a>
+          <a
+            href={SPONSOR}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-white/10 bg-card/70 px-6 py-3 text-sm font-semibold shadow-soft transition-all hover:-translate-y-0.5 hover:border-primary/40 sm:w-auto"
+          >
+            <Heart className="size-4 text-rose-400" />
+            후원하기
           </a>
         </div>
 
@@ -460,6 +479,15 @@ export default function LandingPage() {
             <span>MIT License</span>
           </div>
           <div className="flex items-center gap-5">
+            <a
+              href={SPONSOR}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
+            >
+              <Heart className="size-4 text-rose-400" />
+              후원
+            </a>
             <a
               href={REPO}
               target="_blank"

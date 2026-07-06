@@ -290,9 +290,9 @@ export default function LandingPage() {
             href={SPONSOR}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-white/10 bg-card/70 px-6 py-3 text-sm font-semibold shadow-soft transition-all hover:-translate-y-0.5 hover:border-primary/40 sm:w-auto"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-b from-rose-500 to-pink-600 px-6 py-3 text-sm font-semibold text-white shadow-icon transition-all hover:-translate-y-0.5 hover:brightness-110 sm:w-auto"
           >
-            <Heart className="size-4 text-rose-400" />
+            <Heart className="size-4 fill-current" />
             후원하기
           </a>
         </div>

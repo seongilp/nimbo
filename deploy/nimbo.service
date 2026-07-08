@@ -1,6 +1,6 @@
 [Unit]
 Description=Nimbo — server management UI
-Documentation=https://github.com/your-org/nimbo
+Documentation=https://github.com/seongilp/nimbo
 # Start after the network is up. We *Want* Docker but do NOT *Require* it:
 # the console must keep running (and be able to restart Docker) even if the
 # Docker daemon dies. This is the whole point of running natively, not in a

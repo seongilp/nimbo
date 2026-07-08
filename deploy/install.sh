@@ -338,8 +338,16 @@ if [[ "$USE_CADDY" == 1 ]]; then
   fi
   local_site="$CADDY_HOST"; [[ "$HTTPS_PORT" != "443" ]] && local_site="$CADDY_HOST:$HTTPS_PORT"
   [[ "$CADDY_HOST" =~ ^[0-9.]+$ ]] && TLS_LINE="  tls internal" || TLS_LINE=""
+  # `tls internal` makes a local CA; Caddy (running as the unprivileged `caddy`
+  # user) then tries `sudo tee` to add it to the SERVER's system trust store and
+  # fails (caddy isn't in sudoers) — a scary "failed to install root certificate"
+  # error + a sudo auth failure in journald. The server doesn't need the CA in
+  # its own trust store (browsers trust it manually per the docs), so tell Caddy
+  # to skip the install entirely. Only for self-signed IP hosts.
+  GLOBAL_BLOCK=""
+  [[ -n "$TLS_LINE" ]] && GLOBAL_BLOCK=$'{\n  skip_install_trust\n}\n'
   cat > /etc/caddy/Caddyfile <<EOF
-$local_site {
+${GLOBAL_BLOCK}$local_site {
 $TLS_LINE
   encode zstd gzip
   # 보안 헤더: HSTS + 클릭재킹/MIME 스니핑 방지 (데스크톱-메타포 UI → frame-ancestors).

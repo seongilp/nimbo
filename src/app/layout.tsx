@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
 import { Toaster } from "@/components/ui/sonner";
@@ -13,6 +14,19 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+// Pretendard (Korean UI font) is bundled and self-hosted — NOT loaded from a CDN.
+// Nimbo runs on self-hosted servers that are often on isolated / air-gapped /
+// VPN-only networks with no outbound internet; a render-blocking external
+// stylesheet (jsdelivr) that can't be reached hangs the page to a blank white
+// screen. next/font/local serves it from the app's own /_next/static with
+// font-display: swap, so text renders immediately regardless of connectivity.
+const pretendard = localFont({
+  src: "./fonts/PretendardVariable.woff2",
+  variable: "--font-pretendard",
+  display: "swap",
+  weight: "45 920",
 });
 
 export const metadata: Metadata = {
@@ -34,20 +48,9 @@ export default function RootLayout({
   return (
     <html
       lang="ko"
-      className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${pretendard.variable} dark h-full antialiased`}
       suppressHydrationWarning
     >
-      <head>
-        {/* Warm up the CDN connection early so the render-blocking Pretendard
-            stylesheet + its font files block for less time. Two preconnects:
-            one plain (stylesheet) and one crossorigin (CORS font fetch). */}
-        <link rel="preconnect" href="https://cdn.jsdelivr.net" />
-        <link rel="preconnect" href="https://cdn.jsdelivr.net" crossOrigin="anonymous" />
-        <link
-          rel="stylesheet"
-          href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css"
-        />
-      </head>
       <body className="h-full overflow-hidden">
         <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
         <Toaster position="bottom-right" richColors />

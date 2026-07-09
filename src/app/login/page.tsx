@@ -137,6 +137,8 @@ function LoginForm() {
 
         <p className="mt-5 text-center text-[11px] text-muted-foreground">
           이 서버의 OS 계정(예: root)으로 인증합니다.
+          <br />
+          <a href="/privacy" className="underline-offset-2 hover:text-foreground hover:underline">개인정보처리방침</a>
         </p>
       </form>
     </div>

@@ -6,6 +6,7 @@ import { getSecret, isInsecureSecret, isProduction } from "@/lib/secret";
 const PUBLIC_PREFIXES = [
   "/login",
   "/landing",
+  "/privacy",
   "/api/auth/login",
   "/api/auth/logout",
   "/icon.svg",

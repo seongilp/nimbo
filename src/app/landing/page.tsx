@@ -477,6 +477,8 @@ export default function LandingPage() {
             <span className="font-semibold text-foreground">Nimbo</span>
             <span className="text-muted-foreground/60">·</span>
             <span>MIT License</span>
+            <span className="text-muted-foreground/60">·</span>
+            <a href="/privacy" className="transition-colors hover:text-foreground">개인정보처리방침</a>
           </div>
           <div className="flex items-center gap-5">
             <a

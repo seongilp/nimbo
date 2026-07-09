@@ -13,6 +13,10 @@
   &nbsp;·&nbsp;
   <a href="DEPLOYMENT.md">🚀 배포 가이드</a>
   &nbsp;·&nbsp;
+  <a href="SECURITY.md">🔒 보안</a>
+  &nbsp;·&nbsp;
+  <a href="PRIVACY.md">🛡️ 개인정보처리방침</a>
+  &nbsp;·&nbsp;
   <a href="https://fairy.hada.io/@lumen">❤️ 후원 / Sponsor</a>
 </p>
 

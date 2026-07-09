@@ -1,5 +1,3 @@
-import crypto from "node:crypto";
-
 import type {
   FirewallRule,
   FirewallState,
@@ -8,6 +6,12 @@ import type {
   TwoFactorState,
 } from "@/lib/types";
 import { hasCommand, runArgs, USE_MOCK } from "./exec";
+import {
+  disableTwoFactor,
+  getTwoFactorView,
+  setupTwoFactor,
+  verifyAndEnableTwoFactor,
+} from "./twofactor";
 
 // --------------------------------------------------------------------------
 // Validation
@@ -25,7 +29,6 @@ type FwProtocol = (typeof PROTOCOLS)[number];
 // --------------------------------------------------------------------------
 interface State {
   firewall: FirewallState;
-  twoFactor: TwoFactorState;
 }
 
 // Seeded demo firewall — used ONLY in mock/dev mode. On a real host we never
@@ -52,87 +55,11 @@ function emptyFirewall(): FirewallState {
 
 const state: State = {
   firewall: USE_MOCK ? seedFirewall() : emptyFirewall(),
-  twoFactor: {
-    enabled: false,
-    secret: "",
-    otpauthUrl: "",
-    verified: false,
-  },
 };
 
 let ruleSeq = 100;
 
-// --------------------------------------------------------------------------
-// Base32 (RFC 4648) + TOTP — implemented inline, no deps
-// --------------------------------------------------------------------------
-const B32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-
-function base32Encode(buf: Buffer): string {
-  let bits = 0;
-  let value = 0;
-  let out = "";
-  for (const byte of buf) {
-    value = (value << 8) | byte;
-    bits += 8;
-    while (bits >= 5) {
-      out += B32_ALPHABET[(value >>> (bits - 5)) & 31];
-      bits -= 5;
-    }
-  }
-  if (bits > 0) {
-    out += B32_ALPHABET[(value << (5 - bits)) & 31];
-  }
-  return out;
-}
-
-function base32Decode(input: string): Buffer {
-  const clean = input.replace(/=+$/, "").replace(/\s/g, "").toUpperCase();
-  let bits = 0;
-  let value = 0;
-  const out: number[] = [];
-  for (const ch of clean) {
-    const idx = B32_ALPHABET.indexOf(ch);
-    if (idx === -1) continue;
-    value = (value << 5) | idx;
-    bits += 5;
-    if (bits >= 8) {
-      out.push((value >>> (bits - 8)) & 0xff);
-      bits -= 8;
-    }
-  }
-  return Buffer.from(out);
-}
-
-function totpAt(secret: string, counter: number): string {
-  const key = base32Decode(secret);
-  const buf = Buffer.alloc(8);
-  // 8-byte big-endian counter
-  buf.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
-  buf.writeUInt32BE(counter >>> 0, 4);
-  const hmac = crypto.createHmac("sha1", key).update(buf).digest();
-  const offset = hmac[hmac.length - 1] & 0x0f;
-  const code =
-    ((hmac[offset] & 0x7f) << 24) |
-    ((hmac[offset + 1] & 0xff) << 16) |
-    ((hmac[offset + 2] & 0xff) << 8) |
-    (hmac[offset + 3] & 0xff);
-  return (code % 1_000_000).toString().padStart(6, "0");
-}
-
-function verifyTotp(secret: string, code: string): boolean {
-  if (!secret || !/^[0-9]{6}$/.test(code)) return false;
-  const step = 30;
-  const counter = Math.floor(Date.now() / 1000 / step);
-  // Accept a +/- 1 step window for clock skew.
-  for (let w = -1; w <= 1; w++) {
-    if (totpAt(secret, counter + w) === code) return true;
-  }
-  return false;
-}
-
-function generateSecret(): string {
-  return base32Encode(crypto.randomBytes(20));
-}
+// TOTP/2FA lives in ./twofactor (persistent + shared with the login path).
 
 // --------------------------------------------------------------------------
 // Firewall — real (ufw) reads
@@ -429,10 +356,11 @@ async function buildRealChecks(
 // --------------------------------------------------------------------------
 export async function getSecurityOverview(): Promise<SecurityOverview> {
   let firewall = state.firewall;
+  const tfa = await getTwoFactorView();
   let checks: SecurityCheck[];
 
   if (USE_MOCK) {
-    checks = buildChecks(firewall, state.twoFactor);
+    checks = buildChecks(firewall, tfa);
   } else {
     const backend = await firewallBackend();
     try {
@@ -447,13 +375,13 @@ export async function getSecurityOverview(): Promise<SecurityOverview> {
     } catch {
       firewall = state.firewall;
     }
-    checks = await buildRealChecks(firewall, state.twoFactor, backend);
+    checks = await buildRealChecks(firewall, tfa, backend);
   }
 
   return {
     firewall,
     checks,
-    twoFactor: state.twoFactor,
+    twoFactor: tfa,
     isMock: USE_MOCK,
   };
 }
@@ -608,24 +536,19 @@ export async function runSecurityAction(a: SecurityAction): Promise<{ ok: boolea
       return ok();
 
     case "twoFactor.setup": {
-      const secret = generateSecret();
-      const otpauthUrl = `otpauth://totp/NAS%20Console:admin?secret=${secret}&issuer=NAS%20Console`;
-      state.twoFactor = { enabled: false, secret, otpauthUrl, verified: false };
+      await setupTwoFactor();
       return ok();
     }
 
     case "twoFactor.verify": {
       const code = (a.code ?? "").trim();
-      const secret = state.twoFactor.secret;
-      if (!secret) return fail("먼저 2FA를 설정하세요.");
-      const valid = (USE_MOCK && code === "123456") || verifyTotp(secret, code);
+      const valid = await verifyAndEnableTwoFactor(code);
       if (!valid) return fail("코드가 올바르지 않습니다");
-      state.twoFactor = { ...state.twoFactor, verified: true, enabled: true };
       return ok();
     }
 
     case "twoFactor.disable": {
-      state.twoFactor = { enabled: false, secret: "", otpauthUrl: "", verified: false };
+      await disableTwoFactor();
       return ok();
     }
 

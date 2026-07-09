@@ -18,14 +18,18 @@ function isHttps(req: Request): boolean {
 
 export async function POST(request: Request) {
   try {
-    const { username, password } = (await request.json()) as { username?: string; password?: string };
+    const { username, password, code } = (await request.json()) as {
+      username?: string;
+      password?: string;
+      code?: string;
+    };
     if (!username || !password) {
       return NextResponse.json({ ok: false, error: "사용자 이름과 비밀번호를 입력하세요." }, { status: 400 });
     }
-    const result = await login(username.trim(), password, clientIp(request));
+    const result = await login(username.trim(), password, clientIp(request), code);
     if (!result.ok || !result.token) {
       return NextResponse.json(
-        { ok: false, error: result.error, lockedFor: result.lockedFor },
+        { ok: false, error: result.error, lockedFor: result.lockedFor, twoFactorRequired: result.twoFactorRequired },
         { status: result.lockedFor ? 429 : 401 }
       );
     }

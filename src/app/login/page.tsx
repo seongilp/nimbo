@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Cloud, Loader2, LogIn, Sparkles, User, Lock } from "lucide-react";
+import { Cloud, Loader2, LogIn, Sparkles, User, Lock, KeyRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,23 +17,33 @@ function LoginForm() {
   const next = params.get("next") || "/";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [twoFactorRequired, setTwoFactorRequired] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function doLogin(u: string, p: string) {
+  async function doLogin(u: string, p: string, c?: string) {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: u, password: p }),
+        body: JSON.stringify({ username: u, password: p, code: c }),
       });
       const json = await res.json();
       if (json.ok) {
         router.replace(next);
         router.refresh();
+        return;
+      }
+      if (json.twoFactorRequired) {
+        // Password was correct — now prompt for the TOTP code (or re-prompt on a
+        // wrong one). Keep the username/password; only the code changes.
+        setTwoFactorRequired(true);
+        setError(json.error ?? null);
       } else {
+        setTwoFactorRequired(false);
         setError(json.error ?? "로그인 실패");
       }
     } catch (err) {
@@ -45,7 +55,7 @@ function LoginForm() {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    void doLogin(username, password);
+    void doLogin(username, password, twoFactorRequired ? code : undefined);
   }
 
   return (
@@ -95,11 +105,33 @@ function LoginForm() {
             <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="비밀번호" autoComplete="current-password" className="pl-9" />
           </div>
 
+          {twoFactorRequired && (
+            <div>
+              <div className="relative">
+                <KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="인증 코드 (6자리)"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  className="pl-9 tracking-[0.3em]"
+                />
+              </div>
+              <p className="mt-1.5 px-1 text-[11px] text-muted-foreground">인증 앱(Google OTP 등)의 6자리 코드를 입력하세요.</p>
+            </div>
+          )}
+
           {error && <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
 
-          <Button type="submit" className="w-full gap-2" disabled={busy || !username || !password}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <LogIn className="size-4" />}
-            로그인
+          <Button
+            type="submit"
+            className="w-full gap-2"
+            disabled={busy || !username || !password || (twoFactorRequired && code.length !== 6)}
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : twoFactorRequired ? <KeyRound className="size-4" /> : <LogIn className="size-4" />}
+            {twoFactorRequired ? "인증 코드 확인" : "로그인"}
           </Button>
         </div>
 

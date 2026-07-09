@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type { NimboAuthConfig, NimboRole } from "@/lib/types";
 import { runArgs, USE_MOCK } from "./exec";
+import { isTwoFactorEnabled, verifyLoginTwoFactor } from "./twofactor";
 import { logAudit } from "./audit";
 import { deriveSubnet, ipInCidrs, isValidCidrOrIp, normalizeIp } from "./ipacl";
 import { getSecret as readSecret, isInsecureSecret, isProduction } from "@/lib/secret";
@@ -191,9 +192,11 @@ export interface LoginResult {
   role?: NimboRole;
   error?: string;
   lockedFor?: number;
+  /** Password (and IP/authz) passed, but an admin TOTP code is still required. */
+  twoFactorRequired?: boolean;
 }
 
-export async function login(user: string, password: string, ip: string): Promise<LoginResult> {
+export async function login(user: string, password: string, ip: string, code?: string): Promise<LoginResult> {
   const locked = loginLocked(ip);
   if (locked > 0) return { ok: false, error: `로그인 시도가 많아 잠겼습니다. ${locked}초 후 다시 시도하세요.`, lockedFor: locked };
 
@@ -254,6 +257,21 @@ export async function login(user: string, password: string, ip: string): Promise
     console.warn(`Nimbo authentication failure from ${ip} (user=${safeUser}) [not-authorized]`);
     logAudit(user, "로그인", "Nimbo 웹 콘솔", "failed", ip);
     return { ok: false, error: "이 계정은 Nimbo 접근이 허용되지 않았습니다. 관리자에게 문의하세요." };
+  }
+
+  // Second factor: when 2FA is enabled it gates ADMIN logins. Password + IP +
+  // account checks have all passed; require a valid TOTP code before minting a
+  // session. A missing code just prompts for one (not a failed attempt); a wrong
+  // code counts toward lockout so the 6-digit code can't be brute-forced.
+  if (role === "admin" && (await isTwoFactorEnabled())) {
+    const otp = (code ?? "").trim();
+    if (!otp) return { ok: false, twoFactorRequired: true };
+    if (!(await verifyLoginTwoFactor(otp))) {
+      recordFail(ip);
+      console.warn(`Nimbo authentication failure from ${ip} (user=${safeUser}) [2fa]`);
+      logAudit(user, "로그인", "Nimbo 웹 콘솔", "failed", ip);
+      return { ok: false, twoFactorRequired: true, error: "인증 코드가 올바르지 않습니다." };
+    }
   }
 
   // Fully authorized — now it is safe to clear the counter and log success.

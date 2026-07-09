@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import crypto from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -67,6 +68,7 @@ beforeEach(() => {
   tmpDir = mkdtempSync(path.join(os.tmpdir(), "nimbo-it-"));
   process.env.NIMBO_AUTH_FILE = path.join(tmpDir, "users.json");
   process.env.NIMBO_AUDIT_FILE = path.join(tmpDir, "audit.jsonl");
+  process.env.NIMBO_2FA_FILE = path.join(tmpDir, "2fa.json"); // empty → 2FA off by default
   process.env.NIMBO_SECRET = "test-secret-integration-0123456789";
   delete process.env.NAS_FILE_ROOTS; // admin roots default to "/"
   fakeOs.users = {
@@ -214,5 +216,78 @@ describe("command-injection defenses — inputs validated before any privileged 
     const { runSecurityAction } = await import("./security");
     expect((await runSecurityAction({ kind: "rule.create", rule: { port: "80; rm -rf /", source: "any" } })).ok).toBe(false);
     expect((await runSecurityAction({ kind: "rule.create", rule: { port: "80", source: "1.2.3.0/24 && reboot" } })).ok).toBe(false);
+  });
+});
+
+// Current TOTP for a base32 secret — mirrors twofactor.ts so the test can mint a
+// valid login code. (The app never generates codes server-side; the authenticator
+// app does — this helper is test-only.)
+function totpNow(secret: string): string {
+  const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = 0;
+  let value = 0;
+  const bytes: number[] = [];
+  for (const ch of secret.replace(/=+$/, "").toUpperCase()) {
+    const i = B32.indexOf(ch);
+    if (i < 0) continue;
+    value = (value << 5) | i;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  const counter = Math.floor(Date.now() / 1000 / 30);
+  const buf = Buffer.alloc(8);
+  buf.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
+  buf.writeUInt32BE(counter >>> 0, 4);
+  const hmac = crypto.createHmac("sha1", Buffer.from(bytes)).update(buf).digest();
+  const off = hmac[hmac.length - 1] & 0x0f;
+  const c =
+    ((hmac[off] & 0x7f) << 24) | ((hmac[off + 1] & 0xff) << 16) | ((hmac[off + 2] & 0xff) << 8) | (hmac[off + 3] & 0xff);
+  return (c % 1_000_000).toString().padStart(6, "0");
+}
+
+describe("2FA login enforcement — admin login requires a TOTP code when enabled", () => {
+  const SECRET = "JBSWY3DPEHPK3PXP";
+  function enable2fa() {
+    writeFileSync(process.env.NIMBO_2FA_FILE!, JSON.stringify({ enabled: true, secret: SECRET, otpauthUrl: "", verified: true }));
+  }
+
+  it("2FA off (default) → password alone logs in, no code needed", async () => {
+    const { login } = await import("./auth");
+    const r = await login("alice", "goodpass", "192.168.50.10");
+    expect(r.ok).toBe(true);
+    expect(r.twoFactorRequired).toBeFalsy();
+  });
+
+  it("2FA on, no code → twoFactorRequired and NO session minted", async () => {
+    enable2fa();
+    const { login } = await import("./auth");
+    const r = await login("alice", "goodpass", "192.168.50.10");
+    expect(r.ok).toBe(false);
+    expect(r.twoFactorRequired).toBe(true);
+    expect(r.token).toBeUndefined();
+  });
+
+  it("2FA on, wrong code → rejected (still prompts, counts as a failure)", async () => {
+    enable2fa();
+    const { login } = await import("./auth");
+    const { verifyTotp } = await import("./twofactor");
+    let wrong = "000000";
+    while (verifyTotp(SECRET, wrong)) wrong = String((Number(wrong) + 1) % 1_000_000).padStart(6, "0");
+    const r = await login("alice", "goodpass", "192.168.50.10", wrong);
+    expect(r.ok).toBe(false);
+    expect(r.twoFactorRequired).toBe(true);
+    expect(r.error).toMatch(/올바르지 않/);
+  });
+
+  it("2FA on, valid code → login succeeds as admin", async () => {
+    enable2fa();
+    const { login } = await import("./auth");
+    const r = await login("alice", "goodpass", "192.168.50.10", totpNow(SECRET));
+    expect(r.ok).toBe(true);
+    expect(r.role).toBe("admin");
+    expect(r.token).toBeTruthy();
   });
 });

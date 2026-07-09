@@ -336,8 +336,6 @@ if [[ "$USE_CADDY" == 1 ]]; then
     echo "   ⚠ 도메인 인증서(Let's Encrypt)는 443 챌린지가 필요한데 HTTPS 포트가 $HTTPS_PORT 입니다 —" >&2
     echo "     자동 발급이 실패할 수 있습니다. 443을 비우고 재설치하거나 DNS 챌린지를 구성하세요." >&2
   fi
-  local_site="$CADDY_HOST"; [[ "$HTTPS_PORT" != "443" ]] && local_site="$CADDY_HOST:$HTTPS_PORT"
-  [[ "$CADDY_HOST" =~ ^[0-9.]+$ ]] && TLS_LINE="  tls internal" || TLS_LINE=""
   # `tls internal` makes a local CA; Caddy (running as the unprivileged `caddy`
   # user) then tries `sudo tee` to add it to the SERVER's system trust store and
   # fails (caddy isn't in sudoers) — a scary "failed to install root certificate"
@@ -345,7 +343,24 @@ if [[ "$USE_CADDY" == 1 ]]; then
   # its own trust store (browsers trust it manually per the docs), so tell Caddy
   # to skip the install entirely. Only for self-signed IP hosts.
   GLOBAL_BLOCK=""
-  [[ -n "$TLS_LINE" ]] && GLOBAL_BLOCK=$'{\n  skip_install_trust\n}\n'
+  if [[ "$CADDY_HOST" =~ ^[0-9.]+$ ]]; then
+    # Self-signed IP mode → serve on the PORT for ANY host, not just the detected
+    # IP. On a cloud VM (OCI / EC2 / GCP …) the public IP is NAT'd and NOT on the
+    # local interface, so pinning the site to the detected (usually private/LAN)
+    # IP would reject external requests via the public IP (Host/SNI mismatch). A
+    # port-only listener binds all interfaces, and `tls internal { on_demand }`
+    # makes the internal CA mint a self-signed cert on demand for whatever address
+    # the client used — so LAN (private IP) AND external (public IP / hostname)
+    # access both work. `auto_https disable_redirects` skips the :80 HTTP→HTTPS
+    # redirect (often taken on cloud VMs, and useless on a non-standard port).
+    local_site=":$HTTPS_PORT"
+    TLS_LINE=$'  tls internal {\n    on_demand\n  }'
+    GLOBAL_BLOCK=$'{\n  skip_install_trust\n  auto_https disable_redirects\n}\n'
+  else
+    # Explicit domain → real Let's Encrypt cert, matched by hostname.
+    local_site="$CADDY_HOST"; [[ "$HTTPS_PORT" != "443" ]] && local_site="$CADDY_HOST:$HTTPS_PORT"
+    TLS_LINE=""
+  fi
   cat > /etc/caddy/Caddyfile <<EOF
 ${GLOBAL_BLOCK}$local_site {
 $TLS_LINE
@@ -431,7 +446,13 @@ echo "✅ 완료. (서비스 계정: $SVC_USER, passwordless sudo)"
 echo "   상태:   nimbo status   ·   로그: nimbo logs   ·   제거: sudo nimbo uninstall"
 if [[ "$USE_CADDY" == 1 ]]; then
   echo "   접속:   https://$CADDY_HOST$([[ "$HTTPS_PORT" != 443 ]] && echo ":$HTTPS_PORT")"
-  [[ "$CADDY_HOST" =~ ^[0-9.]+$ ]] && echo "           (자체 서명 인증서 — 브라우저 경고가 뜨면 '고급 → 계속 진행'으로 접속)"
+  if [[ "$CADDY_HOST" =~ ^[0-9.]+$ ]]; then
+    echo "           (자체 서명 인증서 — 브라우저 경고가 뜨면 '고급 → 계속 진행'으로 접속)"
+    echo "   외부접속: 인터넷/다른 망에서는 위 로컬 IP 대신 서버의 '공인 IP'로 접속하세요:"
+    echo "           https://<서버-공인IP>$([[ "$HTTPS_PORT" != 443 ]] && echo ":$HTTPS_PORT")   (Caddy가 모든 IP·호스트로 응답합니다)"
+    echo "           클라우드(OCI·EC2 등)면 보안목록/방화벽에서 ${HTTPS_PORT}/tcp 인바운드를 여세요."
+    echo "           첫 로그인한 네트워크(/24)만 이후 로그인 허용됩니다 — 실제 접속할 곳에서 첫 로그인을 하세요."
+  fi
 else
   echo "   접속:   앱은 127.0.0.1:$PORT 에서만 수신합니다 — 앞단 리버스 프록시를 통해 접속하세요."
   echo "           (LAN 직접 접속이 필요하면 /etc/nimbo/nimbo.env 의 HOSTNAME=0.0.0.0 로 바꾸고 sudo systemctl restart nimbo)"

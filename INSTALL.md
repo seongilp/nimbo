@@ -169,7 +169,9 @@ sudo rm -f /etc/sudoers.d/nimbo
 # (선택) 설정·인증서·서비스 계정까지 완전 삭제
 # sudo rm -rf /etc/nimbo
 # sudo userdel -r nimbo 2>/dev/null || true
-# sudo rm -f /etc/caddy/Caddyfile && sudo systemctl reload caddy
+# sudo systemctl disable --now caddy && sudo rm -f /etc/caddy/Caddyfile
+# (선택) 설치가 추가한 저장소·키:  sudo rm -f /etc/apt/sources.list.d/{nodesource,caddy-stable}.list \
+#   /usr/share/keyrings/{nodesource.gpg,caddy-stable-archive-keyring.gpg} /etc/yum.repos.d/nodesource*.repo
 ```
 
 </details>

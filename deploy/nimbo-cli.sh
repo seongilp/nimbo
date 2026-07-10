@@ -81,13 +81,25 @@ cmd_uninstall() {
   done
   if [[ $yes == 0 && -e /dev/tty ]]; then
     local ans=""
-    read -rp "Nimbo를 제거합니다$([[ $purge == 1 ]] && echo ' (--purge: 설정·계정까지 완전 삭제)'). 계속할까요? [y/N] " ans < /dev/tty || true
+    read -rp "Nimbo를 제거합니다$([[ $purge == 1 ]] && echo ' (--purge: 설정·계정·저장소·방화벽까지 완전 삭제)'). 계속할까요? [y/N] " ans < /dev/tty || true
     [[ "$ans" =~ ^[yY]$ ]] || { echo "취소했습니다."; exit 0; }
   fi
 
-  echo "==> 서비스 중지·비활성화"
+  # Read the HTTPS port from the Caddyfile BEFORE removing anything, so --purge
+  # can also close the firewall port the installer opened. Handles ":10443",
+  # "host:10443" and a bare "host" (→ 443) site addresses.
+  local https_port=""
+  if [[ -f "$CADDYFILE" ]]; then
+    https_port=$(awk '/^[^[:space:]{}]/ && /\{/ { s=$1; sub(/\{.*/,"",s); n=s; sub(/^.*:/,"",n); if (n ~ /^[0-9]+$/) print n; else print 443; exit }' "$CADDYFILE" 2>/dev/null)
+  fi
+
+  echo "==> 서비스 중지·비활성화 (nimbo · nimbo-terminal · caddy)"
   systemctl disable --now nimbo 2>/dev/null || true
   systemctl disable --now nimbo-terminal 2>/dev/null || true
+  # install.sh re-enables Caddy on every (re)install, so disabling here is
+  # reversible — and it frees the HTTPS port + stops boot-time restarts (no more
+  # orphan Caddy holding the port and returning 502).
+  systemctl disable --now caddy 2>/dev/null || true
   rm -f /etc/systemd/system/nimbo.service /etc/systemd/system/nimbo-terminal.service
   systemctl daemon-reload 2>/dev/null || true
 
@@ -95,23 +107,44 @@ cmd_uninstall() {
   rm -f /etc/fail2ban/jail.d/nimbo.conf /etc/fail2ban/filter.d/nimbo.conf
   systemctl reload fail2ban 2>/dev/null || true
 
-  echo "==> 앱·터미널·소스·sudo 규칙 삭제"
+  echo "==> 앱·터미널·소스·sudo 규칙·CLI 삭제"
   rm -rf /opt/nimbo /opt/nimbo-terminal /opt/nimbo-src
   rm -f /etc/sudoers.d/nimbo
+  rm -f /usr/local/bin/nimbo /usr/sbin/nimbo
 
   if [[ $purge == 1 ]]; then
     echo "==> (purge) 설정·인증서·서비스 계정·Caddy 설정 삭제"
     rm -rf /etc/nimbo
     userdel -r nimbo 2>/dev/null || true
     rm -f "$CADDYFILE"
-    systemctl reload caddy 2>/dev/null || systemctl stop caddy 2>/dev/null || true
+
+    echo "==> (purge) 설치 시 추가한 패키지 저장소·키 삭제"
+    rm -f /etc/apt/sources.list.d/nodesource.list /usr/share/keyrings/nodesource.gpg
+    rm -f /etc/apt/sources.list.d/caddy-stable.list /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    rm -f /etc/yum.repos.d/nodesource*.repo 2>/dev/null || true
+    rm -f /etc/yum.repos.d/*caddy*.repo 2>/dev/null || true
+
+    if [[ -n "$https_port" ]]; then
+      echo "==> (purge) 방화벽 포트 정리 (${https_port}/tcp · 80/tcp)"
+      if command -v firewall-cmd >/dev/null; then
+        firewall-cmd --remove-port="$https_port"/tcp --permanent >/dev/null 2>&1 || true
+        firewall-cmd --remove-port=80/tcp --permanent >/dev/null 2>&1 || true
+        firewall-cmd --reload >/dev/null 2>&1 || true
+      elif command -v ufw >/dev/null; then
+        ufw delete allow "$https_port"/tcp >/dev/null 2>&1 || true
+        ufw delete allow 80/tcp >/dev/null 2>&1 || true
+      fi
+    fi
+
+    echo "✅ 완전 제거 완료."
+    echo "   ℹ 시스템 패키지(Node.js·Caddy·fail2ban)는 다른 용도로 쓰일 수 있어 남겨둡니다."
+    echo "     직접 지우려면:  apt remove --purge caddy nodejs fail2ban   (dnf 계열은 dnf remove …)"
+    echo "   ℹ SSH 보호용 /etc/fail2ban/jail.d/sshd.local 은 보안상 남겨둡니다."
   else
-    echo "   보존됨: /etc/nimbo (NIMBO_SECRET·로그인 IP 허용목록·users.json) · nimbo 계정 · Caddy."
-    echo "   ⚠ Caddy는 계속 443을 점유하지만 앱이 없어 502가 납니다. 보안 리셋/완전 삭제는:  sudo nimbo uninstall --purge"
-    echo "   (참고) /etc/fail2ban/jail.d/sshd.local 은 SSH 보호용이라 남겨둡니다."
+    echo "✅ 제거 완료."
+    echo "   보존됨(재설치 시 재사용): /etc/nimbo(NIMBO_SECRET·users.json·IP 허용목록) · nimbo 계정 · Caddyfile · 패키지 저장소."
+    echo "   완전 삭제(위 항목 + 저장소·방화벽 정리):  sudo nimbo uninstall --purge"
   fi
-  rm -f /usr/local/bin/nimbo /usr/sbin/nimbo
-  echo "✅ 제거 완료."
 }
 
 cmd_help() {

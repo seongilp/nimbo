@@ -33,6 +33,7 @@ const ADMIN_API_PREFIXES = [
   "/api/inventory", "/api/shares-admin", "/api/zfs", "/api/backup",
   "/api/timemachine", "/api/cloud", "/api/packages", "/api/notify",
   "/api/nimbo-users", "/api/docker", "/api/power", "/api/terminal",
+  "/api/acl", "/api/mounts", "/api/partitions",
 ];
 function isAdminApi(pathname: string): boolean {
   return ADMIN_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));

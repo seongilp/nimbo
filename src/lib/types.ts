@@ -810,3 +810,156 @@ export interface ApiResult<T> {
   error?: string;
   isMock?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// POSIX ACL (getfacl / setfacl)
+// ---------------------------------------------------------------------------
+
+export type AclTag = "user" | "group" | "mask" | "other";
+
+export interface AclEntry {
+  tag: AclTag;
+  /** User/group name or uid/gid. Empty string = the owning user/group. */
+  qualifier: string;
+  /** Effective permission string, always 3 chars from [rwx-]. */
+  perms: string;
+  /** true = default ACL (inherited by new children of a directory). */
+  isDefault: boolean;
+}
+
+export interface AclInfo {
+  path: string;
+  owner: string;
+  group: string;
+  /** Octal mode of the path itself, e.g. "0755". */
+  mode: string;
+  isDirectory: boolean;
+  entries: AclEntry[];
+  /** false when the filesystem/kernel has no ACL support for this path. */
+  supported: boolean;
+  /** false when acl tooling (getfacl/setfacl) is not installed. */
+  toolInstalled: boolean;
+  isMock: boolean;
+}
+
+export type AclAction =
+  | { kind: "entry.set"; path: string; entry: Omit<AclEntry, "perms"> & { perms: string }; recursive?: boolean }
+  | { kind: "entry.remove"; path: string; entry: Omit<AclEntry, "perms">; recursive?: boolean }
+  | { kind: "clear"; path: string; recursive?: boolean }
+  | { kind: "clear.default"; path: string; recursive?: boolean };
+
+// ---------------------------------------------------------------------------
+// Mount management (block devices + remote SMB/NFS)
+// ---------------------------------------------------------------------------
+
+export interface BlockVolume {
+  device: string; // /dev/sdb1
+  parentDisk: string; // /dev/sdb
+  label: string | null;
+  uuid: string | null;
+  fstype: string | null;
+  sizeBytes: number;
+  mountpoint: string | null;
+  /** true when an /etc/fstab entry already references this volume. */
+  inFstab: boolean;
+  /** Set when the volume belongs to a pool/array and must not be mounted directly. */
+  claimedBy: string | null;
+}
+
+export interface MountEntry {
+  device: string;
+  mountpoint: string;
+  fstype: string;
+  options: string;
+  /** true when a matching /etc/fstab line exists (survives reboot). */
+  persistent: boolean;
+  /** true for network filesystems (cifs/nfs/…). */
+  remote: boolean;
+  /** true when Nimbo wrote the fstab line (safe to remove from the UI). */
+  managed: boolean;
+}
+
+export interface MountOverview {
+  volumes: BlockVolume[];
+  mounts: MountEntry[];
+  /** Which filesystem drivers/helpers are usable on this host. */
+  support: Record<string, boolean>;
+  /** Directories new mountpoints may live under. */
+  mountRoots: string[];
+  isMock: boolean;
+}
+
+export type MountAction =
+  | {
+      kind: "mount";
+      device: string;
+      mountpoint: string;
+      fstype?: string;
+      readOnly?: boolean;
+      options?: string;
+      persist?: boolean;
+    }
+  | { kind: "unmount"; mountpoint: string; force?: boolean; removeFstab?: boolean }
+  | {
+      kind: "remote.mount";
+      protocol: "cifs" | "nfs";
+      server: string;
+      remotePath: string;
+      mountpoint: string;
+      username?: string;
+      password?: string;
+      domain?: string;
+      readOnly?: boolean;
+      options?: string;
+      persist?: boolean;
+    }
+  | { kind: "fstab.remove"; mountpoint: string };
+
+// ---------------------------------------------------------------------------
+// Partitioning (sfdisk / mkfs)
+// ---------------------------------------------------------------------------
+
+export interface PartitionSlot {
+  device: string; // /dev/sdb1
+  number: number;
+  startSector: number;
+  sizeSectors: number;
+  sizeBytes: number;
+  typeName: string;
+  fstype: string | null;
+  label: string | null;
+  mountpoint: string | null;
+}
+
+export interface FreeRegion {
+  startSector: number;
+  sizeSectors: number;
+  sizeBytes: number;
+}
+
+export interface DiskTable {
+  device: string; // /dev/sdb
+  model: string;
+  sizeBytes: number;
+  sectorSize: number;
+  /** "gpt" | "dos" | null when the disk has no partition table. */
+  label: string | null;
+  partitions: PartitionSlot[];
+  free: FreeRegion[];
+  /** Non-null when the disk must not be repartitioned (mounted, in a pool, …). */
+  lockedReason: string | null;
+}
+
+export interface PartitionOverview {
+  disks: DiskTable[];
+  /** Filesystems this host can create (mkfs.* present). */
+  mkfsSupport: Record<string, boolean>;
+  toolInstalled: boolean;
+  isMock: boolean;
+}
+
+export type PartitionAction =
+  | { kind: "table.create"; device: string; label: "gpt" | "dos"; confirm: string }
+  | { kind: "partition.create"; device: string; sizeMiB?: number; fstype?: string; label?: string; confirm: string }
+  | { kind: "partition.delete"; device: string; number: number; confirm: string }
+  | { kind: "partition.format"; device: string; fstype: string; label?: string; confirm: string };

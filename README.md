@@ -49,7 +49,8 @@ Built with Next.js (App Router) + TypeScript + Tailwind + shadcn/ui + lucide-rea
 - 💾 **백업 & 동기화** — rsync · rclone 클라우드 · Time Machine
 - 📦 **컨테이너 & 패키지 센터** — Docker 제어 + 원클릭 셀프호스팅 앱
 - 🛡️ **보안** — 방화벽 · 2FA · 감사 로그
-- 👥 **사용자 / 공유폴더** — 계정 권한 + Samba · NFS 공유
+- 👥 **사용자 / 공유폴더** — 계정 권한 + Samba · NFS 공유 + 폴더별 POSIX ACL
+- 💽 **마운트 & 파티셔닝** — btrfs · NTFS · exFAT · FAT32 마운트, Synology 등 SMB/NFS 원격 연결, GPT/MBR 파티셔닝
 - 📊 **모니터링 대시보드** — CPU · 메모리 · 네트워크 · 스토리지 실시간
 - 🔒 **HTTPS / 인증서** — Caddy 리버스 프록시 자동 TLS
 - 🔌 **UPS / SNMP** 모니터링 · 🔔 **알림** (Slack / Telegram / Discord)
@@ -73,7 +74,8 @@ Highlighted apps (full list of ~19 in [MANUAL.md](MANUAL.md#5-앱별-안내)):
 | --- | --- |
 | **Dashboard** | System, CPU, memory, storage, backup and security status at a glance |
 | **File Station** | Browse the filesystem, navigate Samba/NFS shares, breadcrumb + sidebar |
-| **Storage Manager** | Disks, partitions, usage bars, SMART health, temperature |
+| **Storage Manager** | Disks, partitions, usage bars, SMART health, temperature; mount/unmount (btrfs, NTFS, exFAT, FAT32, SMB/NFS) and GPT/MBR partitioning |
+| **Permissions (ACL)** | Per-folder POSIX ACLs — per-user/group rwx, inherited default ACLs, recursive apply |
 | **Disk Inventory** | Stable drive identity (serial/WWN), SMART, ZFS membership, boot-diff history, guided replace wizard |
 | **ZFS** | Pools, datasets, snapshots, replication, vdev and ARC management |
 | **Backup & Sync** | rsync server, rclone cloud (S3/Drive), Time Machine targets, schedules |

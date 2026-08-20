@@ -16,6 +16,7 @@ const fakeOs = vi.hoisted(() => ({
 
 vi.mock("./exec", () => ({
   USE_MOCK: false,
+  hasCommand: vi.fn(async () => true),
   shq: (s: string) => `'${String(s).replace(/'/g, `'\\''`)}'`,
   runArgs: vi.fn(async (cmd: string, args: string[], opts?: { input?: string }) => {
     if (cmd === "python3") {
@@ -216,6 +217,49 @@ describe("command-injection defenses — inputs validated before any privileged 
     const { runSecurityAction } = await import("./security");
     expect((await runSecurityAction({ kind: "rule.create", rule: { port: "80; rm -rf /", source: "any" } })).ok).toBe(false);
     expect((await runSecurityAction({ kind: "rule.create", rule: { port: "80", source: "1.2.3.0/24 && reboot" } })).ok).toBe(false);
+  });
+
+  it("acl: rejects paths and qualifiers that would alter the setfacl spec", async () => {
+    const { runAclAction } = await import("./acl");
+    const entry = { tag: "user", qualifier: "alice", perms: "rwx", isDefault: false } as const;
+    expect((await runAclAction({ kind: "entry.set", path: "relative/path", entry })).ok).toBe(false);
+    expect((await runAclAction({ kind: "entry.set", path: "--remove-all", entry })).ok).toBe(false);
+    expect(
+      (await runAclAction({ kind: "entry.set", path: "/srv/x", entry: { ...entry, qualifier: "alice:rwx" } })).ok
+    ).toBe(false);
+    expect((await runAclAction({ kind: "entry.set", path: "/srv/x", entry })).ok).toBe(true); // valid → proceeds
+  });
+
+  it("mounts: refuses targets outside the mount roots and hostile inputs", async () => {
+    const { runMountAction } = await import("./mounts");
+    // /etc is not under a mount root; /dev is the only accepted device prefix.
+    expect((await runMountAction({ kind: "mount", device: "/dev/sdb1", mountpoint: "/etc" })).ok).toBe(false);
+    expect((await runMountAction({ kind: "mount", device: "/etc/passwd", mountpoint: "/mnt/x" })).ok).toBe(false);
+    expect((await runMountAction({ kind: "unmount", mountpoint: "/" })).ok).toBe(false);
+    expect(
+      (await runMountAction({ kind: "remote.mount", protocol: "cifs", server: "1.2.3.4 && reboot", remotePath: "s", mountpoint: "/mnt/x" })).ok
+    ).toBe(false);
+    expect(
+      (await runMountAction({ kind: "mount", device: "/dev/sdb1", mountpoint: "/mnt/x", options: "rw,$(id)" })).ok
+    ).toBe(false);
+  });
+
+  it("partitions: destructive actions need an exact device confirmation", async () => {
+    const { runPartitionAction } = await import("./partitions");
+    const CONFIRM_ERROR = /확인을 위해/;
+    const wrong = await runPartitionAction({ kind: "partition.delete", device: "/dev/sdb", number: 1, confirm: "ok" });
+    expect(wrong.ok).toBe(false);
+    expect(wrong.error).toMatch(CONFIRM_ERROR);
+
+    const otherDisk = await runPartitionAction({ kind: "partition.delete", device: "/dev/sdb", number: 1, confirm: "/dev/sdc" });
+    expect(otherDisk.error).toMatch(CONFIRM_ERROR);
+
+    // Matching confirm clears the gate — it then fails later, on disk lookup.
+    const matching = await runPartitionAction({ kind: "partition.delete", device: "/dev/sdb", number: 1, confirm: " /dev/sdb " });
+    expect(matching.error).not.toMatch(CONFIRM_ERROR);
+
+    // A device path that is not a whole disk never reaches sfdisk at all.
+    expect((await runPartitionAction({ kind: "table.create", device: "/dev/sdb; wipefs -a /dev/sdc", label: "gpt", confirm: "/dev/sdb; wipefs -a /dev/sdc" })).ok).toBe(false);
   });
 });
 

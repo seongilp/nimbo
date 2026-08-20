@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentType } from "react";
-import { FolderClosed, HardDrive, Activity, Box, Settings as SettingsIcon, Database, RefreshCw, Bell, ServerCog, UsersRound, ShieldCheck, FolderCog, Package, LayoutDashboard, Lock, BatteryCharging, ScrollText, SquareTerminal, Disc3 } from "lucide-react";
+import { FolderClosed, HardDrive, Activity, Box, Settings as SettingsIcon, Database, RefreshCw, Bell, ServerCog, UsersRound, ShieldCheck, FolderCog, Package, LayoutDashboard, Lock, BatteryCharging, ScrollText, SquareTerminal, Disc3, KeyRound } from "lucide-react";
 
 import { FileStation } from "@/components/apps/file-station";
 import { Terminal } from "@/components/apps/terminal";
@@ -22,6 +22,7 @@ import { Dashboard } from "@/components/apps/dashboard";
 import { Certificates } from "@/components/apps/certificates";
 import { Hardware } from "@/components/apps/hardware";
 import { AuditLog } from "@/components/apps/audit-log";
+import { AclManager } from "@/components/apps/acl-manager";
 
 export interface AppDef {
   id: string;
@@ -155,6 +156,16 @@ export const APPS: AppDef[] = [
     component: SharesManager,
     width: 900,
     height: 620,
+  },
+  {
+    id: "acl",
+    name: "권한 (ACL)",
+    description: "폴더별 사용자·그룹 세부 권한",
+    icon: KeyRound,
+    color: "bg-gradient-to-b from-[#8B5CF6] to-[#6D28D9]",
+    component: AclManager,
+    width: 860,
+    height: 640,
   },
   {
     id: "users",

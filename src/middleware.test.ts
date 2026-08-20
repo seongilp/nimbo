@@ -30,6 +30,7 @@ async function statusFor(pathname: string, role: "admin" | "user" | null): Promi
 const PUBLIC = ["/api/auth/login", "/api/auth/logout"];
 const OPEN = ["/api/auth/me", "/api/overview", "/api/processes", "/api/storage", "/api/shares", "/api/files"];
 const ADMIN = [
+  "/api/acl", "/api/mounts", "/api/partitions",
   "/api/audit", "/api/backup", "/api/certs", "/api/cloud", "/api/docker", "/api/fail2ban",
   "/api/hardware", "/api/host", "/api/inventory", "/api/nimbo-users", "/api/notify",
   "/api/packages", "/api/power", "/api/security", "/api/setup", "/api/shares-admin",

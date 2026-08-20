@@ -2,10 +2,13 @@
 
 import { CheckCircle2, HardDrive, Cpu as Chip, AlertTriangle, XCircle, Thermometer, Database } from "lucide-react";
 
+import { MountManager } from "@/components/apps/mount-manager";
+import { PartitionManager } from "@/components/apps/partition-manager";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePoll } from "@/lib/hooks/use-poll";
 import { formatBytes } from "@/lib/format";
 import type { DiskInfo, PartitionInfo, ZfsOverview } from "@/lib/types";
@@ -193,7 +196,14 @@ export function StorageManager() {
   const { total: totalBytes, used: usedBytes } = summarizeStorage(disks, zfs);
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <Tabs defaultValue="disks" className="h-full gap-0 bg-background">
+      <TabsList className="m-4 mb-0">
+        <TabsTrigger value="disks">디스크</TabsTrigger>
+        <TabsTrigger value="mounts">마운트</TabsTrigger>
+        <TabsTrigger value="partitions">파티션</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="disks" className="flex min-h-0 flex-1 flex-col">
       <div className="grid grid-cols-3 gap-3 p-4">
         <Card className="p-4">
           <p className="text-xs text-muted-foreground">Total capacity</p>
@@ -216,6 +226,15 @@ export function StorageManager() {
             : disks?.map((disk) => <DiskCard key={disk.device} disk={disk} />)}
         </div>
       </ScrollArea>
-    </div>
+      </TabsContent>
+
+      <TabsContent value="mounts" className="min-h-0 flex-1">
+        <MountManager />
+      </TabsContent>
+
+      <TabsContent value="partitions" className="min-h-0 flex-1">
+        <PartitionManager />
+      </TabsContent>
+    </Tabs>
   );
 }

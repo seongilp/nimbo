@@ -52,7 +52,28 @@
 
 Cmnd_Alias NIMBO_SVC   = /usr/bin/systemctl, /bin/systemctl, /usr/bin/journalctl, /bin/journalctl
 Cmnd_Alias NIMBO_ZFS   = /usr/sbin/zpool, /usr/sbin/zfs, /sbin/zpool, /sbin/zfs
-Cmnd_Alias NIMBO_DISK  = /usr/sbin/smartctl, /usr/bin/lsblk, /usr/sbin/lsblk
+Cmnd_Alias NIMBO_DISK  = /usr/sbin/smartctl, /usr/bin/lsblk, /usr/sbin/lsblk, /usr/bin/findmnt, /bin/findmnt
+# 마운트 관리(/api/mounts): 블록 장치 + 원격(cifs/nfs) 마운트, /etc/fstab 편집.
+#   ⚠ `tee /etc/fstab`은 부팅 설정 파일 쓰기 권한이다. mounts.ts가 쓰기 전 항상
+#     /etc/fstab.nimbo.bak 백업을 만들고, Nimbo가 남긴 "# nimbo" 마커가 붙은 줄만
+#     삭제한다(손으로 적은 항목은 절대 지우지 않음). 마운트 지점은 NIMBO_MOUNT_ROOTS
+#     (기본 /mnt:/media:/srv) 하위로 제한된다.
+Cmnd_Alias NIMBO_MOUNT = /usr/bin/mount, /bin/mount, /usr/bin/umount, /bin/umount, \
+                         /usr/bin/mkdir, /bin/mkdir, /usr/bin/install, /bin/install, \
+                         /usr/bin/tee /etc/fstab, /usr/bin/tee /etc/nimbo/cifs/*, \
+                         /usr/bin/cp -f /etc/fstab /etc/fstab.nimbo.bak
+# 파티셔닝(/api/partitions): 파괴적 작업. 앱 단에서 (1) 마운트/풀/루트 디스크 사용
+# 여부 검사, (2) 장치 경로 정규식 검증, (3) 사용자가 장치 경로를 그대로 재입력하는
+# confirm 게이트를 모두 통과해야만 실행된다.
+Cmnd_Alias NIMBO_PART  = /usr/sbin/sfdisk, /sbin/sfdisk, /usr/sbin/wipefs, /sbin/wipefs, \
+                         /usr/sbin/partprobe, /sbin/partprobe, /usr/bin/udevadm, /sbin/udevadm, \
+                         /usr/sbin/mkfs.ext4, /usr/sbin/mkfs.ext3, /usr/sbin/mkfs.xfs, \
+                         /usr/bin/mkfs.btrfs, /usr/sbin/mkfs.btrfs, /usr/sbin/mkfs.f2fs, \
+                         /usr/sbin/mkfs.vfat, /usr/sbin/mkfs.exfat, /usr/sbin/mkfs.ntfs
+# 파일시스템 ACL(/api/acl): 경로는 NIMBO_ACL_ROOTS(기본 /) 하위로 제한되고,
+# 사용자/그룹 이름과 권한 문자열은 정규식으로 검증된 뒤 argv로 전달된다.
+Cmnd_Alias NIMBO_ACL   = /usr/bin/getfacl, /bin/getfacl, /usr/bin/setfacl, /bin/setfacl, \
+                         /usr/bin/stat, /bin/stat
 Cmnd_Alias NIMBO_NET   = /usr/sbin/ufw, /usr/bin/firewall-cmd, /usr/bin/nmcli, /usr/bin/hostnamectl, /usr/bin/timedatectl, /usr/sbin/ip, /bin/ip
 Cmnd_Alias NIMBO_USER  = /usr/sbin/useradd, /usr/sbin/userdel, /usr/sbin/usermod, /usr/sbin/groupadd, /usr/sbin/groupdel, /usr/sbin/chpasswd, /usr/bin/getent
 Cmnd_Alias NIMBO_SHARE = /usr/sbin/exportfs, /usr/bin/tee /etc/samba/*, /usr/bin/tee /etc/exports*
@@ -66,7 +87,7 @@ Cmnd_Alias NIMBO_F2B   = /usr/bin/fail2ban-client, /bin/fail2ban-client
 #   world-readable라 sudo가 애초에 불필요하다(NIMBO_SUDO=1이 무조건 감싸는 부작용).
 Cmnd_Alias NIMBO_READ  = /usr/bin/cat, /bin/cat, /usr/bin/grep, /bin/grep, /usr/bin/ps, /bin/ps, /usr/bin/ls, /bin/ls, /usr/bin/du, /usr/bin/last, /usr/bin/crontab, /usr/bin/python3, /usr/bin/env python3
 
-nimbo ALL=(root) NOPASSWD: NIMBO_SVC, NIMBO_ZFS, NIMBO_DISK, NIMBO_NET, NIMBO_USER, NIMBO_SHARE, NIMBO_BACKUP, NIMBO_CERT, NIMBO_DOCKER, NIMBO_UPS, NIMBO_F2B, NIMBO_READ
+nimbo ALL=(root) NOPASSWD: NIMBO_SVC, NIMBO_ZFS, NIMBO_DISK, NIMBO_MOUNT, NIMBO_PART, NIMBO_ACL, NIMBO_NET, NIMBO_USER, NIMBO_SHARE, NIMBO_BACKUP, NIMBO_CERT, NIMBO_DOCKER, NIMBO_UPS, NIMBO_F2B, NIMBO_READ
 
 # 인터랙티브 터미널(예외 1): root가 아니라 로그인 OS 사용자로만. 채택 시 활성화.
 # %nimbo-users 그룹은 install.sh가 관리한다. (root는 제외 — 터미널로 root 셸 금지)

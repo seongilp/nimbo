@@ -101,6 +101,18 @@ command -v openssl >/dev/null || pkg_install openssl || true
 # silently assume every port is free and later collide with an existing proxy.
 command -v ss >/dev/null || pkg_install iproute2 || pkg_install iproute || true
 command -v ss >/dev/null || echo "⚠ 'ss' 없음 — 포트 충돌 감지를 건너뜁니다(다른 서비스와 겹칠 수 있음)." >&2
+# ── 스토리지 보조 도구 (선택 — 없으면 해당 기능만 UI에서 "미설치"로 표시) ─────
+#   acl        : 폴더별 POSIX ACL 관리 (권한 앱)
+#   ntfs-3g    : NTFS 마운트 (커널 ntfs3가 없는 배포판 대비)
+#   exfatprogs : exFAT 마운트/포맷
+#   cifs-utils : SMB(Synology 등) 원격 마운트
+#   nfs-common : NFS 원격 마운트
+#   btrfs-progs: btrfs 포맷
+# 실패해도 설치는 계속된다 — 전부 부가 기능이라 없다고 콘솔이 못 뜨지는 않는다.
+case "$PKG" in
+  dnf|yum) pkg_install acl ntfs-3g exfatprogs cifs-utils nfs-utils btrfs-progs >/dev/null 2>&1 || true ;;
+  apt)     pkg_install acl ntfs-3g exfatprogs cifs-utils nfs-common btrfs-progs >/dev/null 2>&1 || true ;;
+esac
 # python3 + system libcrypt back OS-password verification (auth.ts). REQUIRED —
 # without a working libcrypt the web console can never authenticate anyone.
 command -v python3 >/dev/null || pkg_install python3 || true

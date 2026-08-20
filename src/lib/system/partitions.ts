@@ -68,6 +68,15 @@ export function partitionNumber(part: string): number | null {
   return Number.isInteger(n) && n > 0 && n <= 128 ? n : null;
 }
 
+/**
+ * The confirmation gate for every destructive action: the caller must echo the
+ * exact device path back. Pure so it can be unit-tested without going anywhere
+ * near a real disk.
+ */
+export function confirmMatches(expected: string, confirm: unknown): boolean {
+  return typeof confirm === "string" && confirm.trim() === expected;
+}
+
 export function normalizeFsLabel(input: unknown): string | null | undefined {
   if (input == null || input === "") return undefined; // absent = no label
   if (typeof input !== "string") return null;
@@ -331,7 +340,7 @@ function fail(error: string): Result {
  * caller echoed the device path back in `confirm`.
  */
 async function gate(disk: string, confirm: unknown): Promise<{ table: DiskTable } | Result> {
-  if (typeof confirm !== "string" || confirm.trim() !== disk) {
+  if (!confirmMatches(disk, confirm)) {
     return fail("확인을 위해 장치 경로를 정확히 입력해야 합니다.");
   }
   const overview = await getPartitionOverview();
@@ -449,7 +458,7 @@ async function formatPartition(a: Extract<PartitionAction, { kind: "partition.fo
   if (!MKFS[fstype]) return fail("지원하지 않는 파일시스템입니다.");
 
   // Confirm is checked against the PARTITION here — that is what gets erased.
-  if (typeof a.confirm !== "string" || a.confirm.trim() !== partition) {
+  if (!confirmMatches(partition, a.confirm)) {
     return fail("확인을 위해 파티션 경로를 정확히 입력해야 합니다.");
   }
   const overview = await getPartitionOverview();
@@ -468,8 +477,7 @@ export async function runPartitionAction(action: PartitionAction): Promise<Resul
 
   if (USE_MOCK) {
     // Mock mode still enforces the confirm gate so the UI flow is testable.
-    const expected = String(action.device ?? "");
-    if (typeof action.confirm !== "string" || action.confirm.trim() !== expected) {
+    if (!confirmMatches(String(action.device ?? ""), action.confirm)) {
       return fail("확인을 위해 장치 경로를 정확히 입력해야 합니다.");
     }
     return { ok: true };

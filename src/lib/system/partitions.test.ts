@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildMkfsArgs,
+  confirmMatches,
   diskOfPartition,
   freeRegions,
   isDiskDevice,
   isPartitionDevice,
   normalizeFsLabel,
   partitionNumber,
-  runPartitionAction,
   sfdiskAppendScript,
 } from "./partitions";
 
@@ -109,13 +109,20 @@ describe("partitions — sfdisk / mkfs argv", () => {
 });
 
 describe("partitions — destructive actions require an exact confirmation", () => {
-  it("refuses when confirm does not echo the device path", async () => {
-    const res = await runPartitionAction({ kind: "table.create", device: "/dev/sdb", label: "gpt", confirm: "yes" });
-    expect(res.ok).toBe(false);
+  // Tested through the pure gate rather than runPartitionAction(): the action
+  // path branches on USE_MOCK, so asserting on it would pass on a dev Mac and
+  // fail on Linux CI — and a "successful" run there would touch a real disk.
+  it("accepts only the exact device path, ignoring surrounding whitespace", () => {
+    expect(confirmMatches("/dev/sdb", "/dev/sdb")).toBe(true);
+    expect(confirmMatches("/dev/sdb", "  /dev/sdb  ")).toBe(true);
   });
 
-  it("proceeds when confirm matches exactly", async () => {
-    const res = await runPartitionAction({ kind: "table.create", device: "/dev/sdb", label: "gpt", confirm: "/dev/sdb" });
-    expect(res.ok).toBe(true);
+  it("rejects a near-miss, a different disk, and non-string input", () => {
+    expect(confirmMatches("/dev/sdb", "yes")).toBe(false);
+    expect(confirmMatches("/dev/sdb", "/dev/sdc")).toBe(false);
+    expect(confirmMatches("/dev/sdb", "/dev/sdb1")).toBe(false);
+    expect(confirmMatches("/dev/sdb", "")).toBe(false);
+    expect(confirmMatches("/dev/sdb", undefined)).toBe(false);
+    expect(confirmMatches("/dev/sdb", true)).toBe(false);
   });
 });

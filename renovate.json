@@ -2,5 +2,19 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "dependencyDashboard": false,
+  "automerge": true,
+  "platformAutomerge": false,
+  "ignoreTests": false,
+  "packageRules": [
+    {
+      "groupName": "minor and patch dependencies",
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": true
+    }
   ]
 }

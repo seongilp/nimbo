@@ -4,7 +4,7 @@
     "config:recommended"
   ],
   "dependencyDashboard": false,
-  "automerge": true,
+  "automerge": false,
   "platformAutomerge": false,
   "ignoreTests": false,
   "packageRules": [
@@ -15,6 +15,17 @@
         "patch"
       ],
       "automerge": true
+    },
+    {
+      "description": "메이저(typescript v7, maplibre-gl v6)는 코드 수정이 필요해 자동 제안을 끈다 — 2026-11-20",
+      "matchPackageNames": [
+        "typescript",
+        "maplibre-gl"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
     }
   ]
 }

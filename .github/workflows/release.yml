@@ -45,7 +45,7 @@ jobs:
           echo "bundle size:"; du -h nimbo-dist.tar.gz
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: nimbo-dist.tar.gz
           generate_release_notes: true
